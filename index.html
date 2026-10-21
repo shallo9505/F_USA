@@ -136,7 +136,7 @@ noscript { display: block; padding: 20px; font-family: sans-serif; }
 #overseas-ledger-v2 .ol-order{display:inline-flex;gap:4px;flex-shrink:0}
 #overseas-ledger-v2 .ol-order button{width:32px;min-height:34px;padding:4px;font-size:17px;line-height:1;border-radius:7px}
 #overseas-ledger-v2 .ol-order button:disabled{opacity:.3}
-#overseas-ledger-v2 .ol-rowtools{display:flex;align-items:center;gap:9px;flex-shrink:0}
+#overseas-ledger-v2 .ol-rowtools{display:flex;align-items:center;gap:9px;flex-shrink:0;flex-wrap:wrap}
 #overseas-ledger-v2 button:focus-visible{outline:2px solid var(--ol-accent);outline-offset:3px}
 #overseas-ledger-v2 .ol-grouphead>.ol-actions{row-gap:8px}
 @media(max-width:700px){#overseas-ledger-v2 .ol-rowtools{margin:0 12px 12px auto}#overseas-ledger-v2 .ol-income-item .ol-rowtools{margin-right:0}}
@@ -181,62 +181,76 @@ const root=document.getElementById('overseas-ledger-v2');
 const sum=(items,key)=>items.reduce((n,x)=>n+(typeof key==='function'?key(x):x[key]),0);
 const round=(n,p=8)=>Math.round((n+Number.EPSILON)*10**p)/10**p;
 const net=x=>round(x.gross-x.tax);
-function stockTotals(d,id){const t=d.trades.filter(x=>x.stockId===id);return{qty:round(sum(t,'qty')),amount:round(sum(t,'amount')),count:t.length};}
-function accountTotals(d,id){const a=d.accounts.find(x=>x.id===id),f=d.exchanges.filter(x=>x.accountId===id),t=d.trades.filter(x=>x.accountId===id),i=d.incomes.filter(x=>x.accountId===id);const received=sum(f,'amount'),krw=sum(f,'krw');return{received:round(received),krw:round(krw),spent:round(sum(t,'amount')),income:round(sum(i,net)),balance:round(received-sum(t,'amount')+sum(i,net)),average:received?krw/received*a.unit:null};}
-function totals(d,code='USD'){const accounts=d.accounts.filter(x=>x.code===code);const a=accounts.map(x=>accountTotals(d,x.id)),received=sum(a,'received'),krw=sum(a,'krw'),stocks=d.stocks.filter(x=>x.code===code),income=d.incomes.filter(x=>accounts.some(a=>a.id===x.accountId));return{cash:round(sum(a,'balance')),principal:round(sum(stocks,x=>stockTotals(d,x.id).amount)),average:received?krw/received:null,dividend:round(sum(income.filter(x=>x.kind==='dividend'),net)),interest:round(sum(income.filter(x=>x.kind==='interest'),net))};}
-function groupAllocation(d,groupId){
- const stocks=d.stocks.filter(s=>s.groupId===groupId),codes=[...new Set(stocks.map(s=>s.code))],mixed=codes.length>1;
- const rows=stocks.map(s=>({stockId:s.id,amount:round(sum(d.trades.filter(t=>t.stockId===s.id),t=>mixed?t.amount*t.rate/d.accounts.find(a=>a.id===t.accountId).unit:t.amount))}));
- const total=round(sum(rows,'amount'));return{code:mixed?'KRW':codes[0]||'USD',mixed,total,rows:rows.map(r=>({...r,percent:total>0?r.amount/total*100:null}))};
+function stockTotals(d,id){
+ const trades=d.trades.filter(x=>x.stockId===id).map((x,i)=>({...x,index:i})).sort((a,b)=>a.date.localeCompare(b.date)||a.index-b.index);
+ let quantity=0,cost=0,krwCost=0,realized=0,bought=0,sold=0;
+ for(const t of trades){
+  if(t.side==='sell'){
+   if(t.qty>quantity+1e-8)throw Error(`${d.stocks.find(s=>s.id===id)?.ticker||'종목'}: ${t.date} 매도수량이 당시 보유 주수(${round(quantity)}주)를 초과합니다.`);
+   const all=Math.abs(t.qty-quantity)<=1e-8,fraction=quantity?t.qty/quantity:0,removed=all?cost:cost*fraction;
+   realized+=t.amount-removed;cost-=removed;krwCost=all?0:krwCost*(1-fraction);quantity=all?0:quantity-t.qty;sold+=t.amount;
+  }else{quantity+=t.qty;cost+=t.amount;krwCost+=t.amount*t.rate/(d.accounts.find(a=>a.id===t.accountId)?.unit||1);bought+=t.amount;}
+ }
+ return{qty:round(quantity),amount:round(cost),krwCost:round(krwCost),realized:round(realized),bought:round(bought),sold:round(sold),count:trades.length,buyCount:trades.filter(t=>t.side!=='sell').length,sellCount:trades.filter(t=>t.side==='sell').length};
 }
+function accountTotals(d,id){
+ const a=d.accounts.find(x=>x.id===id),fx=d.exchanges.filter(x=>x.accountId===id),tr=d.trades.filter(x=>x.accountId===id),incomes=d.incomes.filter(x=>x.accountId===id);
+ const buys=fx.filter(x=>x.direction!=='sell'),sells=fx.filter(x=>x.direction==='sell');
+ const received=round(sum(buys,'amount')-sum(sells,'amount')),krw=round(sum(buys,'krw')-sum(sells,'krw'));
+ const spent=round(sum(tr.filter(x=>x.side!=='sell'),'amount')),proceeds=round(sum(tr.filter(x=>x.side==='sell'),'amount')),income=round(sum(incomes,net));
+ return{received,krw,spent,proceeds,income,fxBought:round(sum(buys,'amount')),fxSold:round(sum(sells,'amount')),krwPaid:round(sum(buys,'krw')),krwReturned:round(sum(sells,'krw')),balance:round(received-spent+proceeds+income),average:received>1e-8?krw/received*a.unit:null};
+}
+function totals(d,code='USD'){
+ const accounts=d.accounts.filter(x=>x.code===code),a=accounts.map(x=>accountTotals(d,x.id)),received=sum(a,'received'),krw=sum(a,'krw'),stocks=d.stocks.filter(x=>x.code===code),income=d.incomes.filter(x=>accounts.some(a=>a.id===x.accountId));
+ return{cash:round(sum(a,'balance')),principal:round(sum(stocks,x=>stockTotals(d,x.id).amount)),realized:round(sum(stocks,x=>stockTotals(d,x.id).realized)),average:received>1e-8?krw/received:null,dividend:round(sum(income.filter(x=>x.kind==='dividend'),net)),interest:round(sum(income.filter(x=>x.kind==='interest'),net))};
+}
+function groupAllocation(d,groupId){const stocks=d.stocks.filter(s=>s.groupId===groupId),codes=[...new Set(stocks.map(s=>s.code))],mixed=codes.length>1;const rows=stocks.map(s=>({stockId:s.id,amount:stockTotals(d,s.id)[mixed?'krwCost':'amount']}));const total=round(sum(rows,'amount'));return{code:mixed?'KRW':codes[0]||'USD',mixed,total,rows:rows.map(r=>({...r,percent:total>0?r.amount/total*100:null}))};}
 function periodIncomes(d,year='',month=''){return d.incomes.filter(x=>(!year||x.date.slice(0,4)===String(year))&&(!year||!month||x.date.slice(5,7)===String(month).padStart(2,'0')));}
 function incomeTotal(rows){return{dividend:round(sum(rows.filter(x=>x.kind==='dividend'),net)),interest:round(sum(rows.filter(x=>x.kind==='interest'),net)),total:round(sum(rows,net)),count:rows.length};}
 function incomeByCurrency(d,rows){return [...new Set(d.accounts.map(a=>a.code))].map(code=>({code,...incomeTotal(rows.filter(x=>d.accounts.find(a=>a.id===x.accountId).code===code))}));}
 function completeOrder(saved,available){const valid=new Set(available),seen=new Set();return [...(saved||[]),...available].filter(id=>{if(!valid.has(id)||seen.has(id))return false;seen.add(id);return true;});}
 function bySavedOrder(items,saved,key='id'){const map=new Map(items.map(item=>[item[key],item]));return completeOrder(saved,[...map.keys()]).map(id=>map.get(id));}
 function groupList(d){return bySavedOrder([...d.groups,...(d.stocks.some(s=>!s.groupId)?[{id:'',label:'미분류'}]:[])],d.order?.groups);}
-function incomeEntries(d){
- const items=[...d.stocks.map(s=>({key:'stock:'+s.id,label:s.ticker,code:s.code,sub:d.groups.find(g=>g.id===s.groupId)?.label||'미분류',match:x=>x.stockId===s.id})),...d.accounts.filter(a=>d.incomes.some(x=>!x.stockId&&x.accountId===a.id)).map(a=>({key:'account:'+a.id,label:'계좌 이자',code:a.code,sub:a.label,match:x=>!x.stockId&&x.accountId===a.id}))];
- return bySavedOrder(items,d.order?.incomes,'key');
-}
+function incomeEntries(d,includeHidden=false){return bySavedOrder(d.incomeItems.filter(i=>includeHidden||!i.hidden).map(i=>({...i,key:i.id,sub:i.stockId?(d.stocks.find(s=>s.id===i.stockId)?.ticker||'종목'):(i.kind==='interest'?'별도 이자':'별도 배당금'),match:x=>x.itemId===i.id})),d.order?.incomes,'key');}
 function moveLedgerItem(d,kind,id,step){
- if(![-1,1].includes(step))return null;
- const next=validate(d);let ids;
- if(kind==='group')ids=groupList(next).map(g=>g.id);
- else if(kind==='income')ids=incomeEntries(next).map(e=>e.key);
- else if(kind==='stock'){const item=next.stocks.find(s=>s.id===id);if(!item)return null;ids=next.stocks.filter(s=>s.groupId===item.groupId).map(s=>s.id);}
- else return null;
+ if(![-1,1].includes(step))return null;const next=validate(d);let ids;
+ if(kind==='group')ids=groupList(next).map(g=>g.id);else if(kind==='income')ids=incomeEntries(next).map(e=>e.key);else if(kind==='stock'){const item=next.stocks.find(s=>s.id===id);if(!item)return null;ids=next.stocks.filter(s=>s.groupId===item.groupId).map(s=>s.id);}else return null;
  const index=ids.indexOf(id),other=index+step;if(index<0||other<0||other>=ids.length)return null;
  if(kind==='stock'){const a=next.stocks.findIndex(s=>s.id===id),b=next.stocks.findIndex(s=>s.id===ids[other]);[next.stocks[a],next.stocks[b]]=[next.stocks[b],next.stocks[a]];}
- else{[ids[index],ids[other]]=[ids[other],ids[index]];next.order[kind==='group'?'groups':'incomes']=ids;}
- return next;
+ else{[ids[index],ids[other]]=[ids[other],ids[index]];next.order[kind==='group'?'groups':'incomes']=completeOrder(ids,kind==='group'?groupList(next).map(g=>g.id):next.incomeItems.map(i=>i.id));}return next;
 }
-const blank=()=>({version:3,groups:[],accounts:[{id:'usd1',label:'달러1',code:'USD',unit:1}],stocks:[],exchanges:[],trades:[],incomes:[]});
-function validDate(s){return typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s)&&s.slice(0,4)>='1900'&&s.slice(0,4)<='2199'&&new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s;}
+const blank=()=>({version:4,groups:[],accounts:[{id:'usd1',label:'달러1',code:'USD',unit:1}],stocks:[],exchanges:[],trades:[],incomes:[],incomeItems:[],order:{groups:[],incomes:[]}});
+function validDate(s){if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(s)||s.slice(0,4)<'1900'||s.slice(0,4)>'2199')return false;const d=new Date(s+'T00:00:00Z');return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===s;}
 function validate(d){
- if(!d||![1,2,3].includes(d.version))throw Error('이 장부에서 만든 백업인지 확인해 주세요.');
+ if(!d||![1,2,3,4].includes(d.version))throw Error('이 장부에서 만든 백업인지 확인해 주세요.');
  for(const k of ['accounts','stocks','exchanges','trades','incomes'])if(!Array.isArray(d[k])||d[k].length>20000)throw Error('백업의 기록 형식 또는 건수를 확인해 주세요.');
- d=JSON.parse(JSON.stringify(d));if(d.version===1){d.version=2;d.groups=[];d.stocks=d.stocks.map(s=>({...s,groupId:''}));}
- if(!Array.isArray(d.groups)||d.groups.length>1000)throw Error('그룹 정보를 확인해 주세요.');
- const text=(s,max=80)=>typeof s==='string'&&s.length<=max;
- const positive=n=>typeof n==='number'&&Number.isFinite(n)&&n>0&&n<=1e12;
- const nonneg=n=>n===0||positive(n);
- const code=s=>typeof s==='string'&&/^[A-Z]{3}$/.test(s);
- for(const k of ['groups','accounts','stocks','exchanges','trades','incomes']){const ids=new Set();for(const x of d[k]){if(!x||!text(x.id,80)||!x.id||!/^[a-zA-Z0-9_-]+$/.test(x.id)||ids.has(x.id))throw Error('중복되거나 잘못된 기록 ID입니다.');ids.add(x.id);}}
+ d=JSON.parse(JSON.stringify(d));if(d.version===1){d.groups=[];d.stocks=d.stocks.map(s=>({...s,groupId:''}));}
+ if(d.version<4){
+  const map=new Map();d.incomeItems=[];
+  d.stocks.forEach((s,index)=>{const id='legacy_stock_'+index;map.set('stock:'+s.id,id);d.incomeItems.push({id,label:s.ticker,kind:'dividend',code:s.code,stockId:s.id,hidden:false});});
+  d.accounts.forEach((a,index)=>{if(d.incomes.some(x=>!x.stockId&&x.accountId===a.id)){const id='legacy_account_'+index;map.set('account:'+a.id,id);d.incomeItems.push({id,label:a.label+' 이자',kind:'interest',code:a.code,stockId:'',hidden:false});}});
+  d.incomes=d.incomes.map(x=>({...x,itemId:map.get(x.stockId?'stock:'+x.stockId:'account:'+x.accountId)}));
+  if(d.order?.incomes)d.order.incomes=d.order.incomes.map(id=>map.get(id)||id);
+  d.exchanges=d.exchanges.map(x=>({...x,direction:'buy'}));d.trades=d.trades.map(x=>({...x,side:'buy'}));
+ }
+ if(!Array.isArray(d.groups)||d.groups.length>1000||!Array.isArray(d.incomeItems)||d.incomeItems.length>20000)throw Error('그룹 또는 배당금·이자 항목을 확인해 주세요.');
+ const text=(s,max=80)=>typeof s==='string'&&s.length<=max,positive=n=>typeof n==='number'&&Number.isFinite(n)&&n>0&&n<=1e12,nonneg=n=>n===0||positive(n),code=s=>typeof s==='string'&&/^[A-Z]{3}$/.test(s);
+ for(const k of ['groups','accounts','stocks','exchanges','trades','incomes','incomeItems']){const ids=new Set();for(const x of d[k]){if(!x||!text(x.id,80)||!x.id||!/^[a-zA-Z0-9_-]+$/.test(x.id)||ids.has(x.id))throw Error('중복되거나 잘못된 기록 ID입니다.');ids.add(x.id);}}
  for(const g of d.groups)if(!text(g.label,40)||!g.label.trim())throw Error('그룹 이름을 확인해 주세요.');
  for(const a of d.accounts)if(!text(a.label)||!a.label.trim()||!code(a.code)||![1,100].includes(a.unit))throw Error('통화 계정 정보를 확인해 주세요.');
  for(const s of d.stocks)if(!text(s.ticker,20)||!s.ticker.trim()||!text(s.name)||!code(s.code)||typeof s.groupId!=='string'||(s.groupId&&!d.groups.some(g=>g.id===s.groupId)))throw Error('종목과 소속 그룹 정보를 확인해 주세요.');
- for(const x of d.exchanges){if(!d.accounts.some(a=>a.id===x.accountId)||!validDate(x.date)||![x.krw,x.amount,x.rate].every(positive)||!nonneg(x.fee)||x.fee>x.krw)throw Error('환전일·금액·수수료·연결 계정을 확인해 주세요.');}
- for(const x of d.trades){const s=d.stocks.find(s=>s.id===x.stockId),a=d.accounts.find(a=>a.id===x.accountId);if(!s||!a||s.code!==a.code||!validDate(x.date)||![x.amount,x.qty,x.price,x.rate].every(positive))throw Error('매수일·금액·수량·연결 통화를 확인해 주세요.');}
- for(const x of d.incomes){const a=d.accounts.find(a=>a.id===x.accountId),s=d.stocks.find(s=>s.id===x.stockId);if(!a||!['dividend','interest'].includes(x.kind)||!validDate(x.date)||!positive(x.gross)||!nonneg(x.tax)||x.tax>x.gross||!text(x.memo,200)||typeof x.stockId!=='string'||((x.kind==='dividend'||x.stockId)&&(!s||s.code!==a.code)))throw Error('입금일·지급액·차감액·연결 종목을 확인해 주세요.');}
- if(d.order===undefined)d.order={};
- if(!d.order||typeof d.order!=='object'||Array.isArray(d.order))throw Error('정렬 정보를 확인해 주세요.');
+ for(const i of d.incomeItems){const s=d.stocks.find(s=>s.id===i.stockId);if(!text(i.label)||!i.label.trim()||!['dividend','interest'].includes(i.kind)||!code(i.code)||typeof i.stockId!=='string'||(i.stockId&&(!s||s.code!==i.code))||typeof i.hidden!=='boolean')throw Error('배당금·이자 항목의 이름, 통화, 연결 종목을 확인해 주세요.');}
+ for(const x of d.exchanges)if(!d.accounts.some(a=>a.id===x.accountId)||!['buy','sell'].includes(x.direction)||!validDate(x.date)||![x.krw,x.amount,x.rate].every(positive)||!nonneg(x.fee)||(x.direction==='buy'&&x.fee>x.krw))throw Error('환전 방향·일자·금액·수수료·계정을 확인해 주세요.');
+ for(const x of d.trades){const s=d.stocks.find(s=>s.id===x.stockId),a=d.accounts.find(a=>a.id===x.accountId);if(!s||!a||s.code!==a.code||!['buy','sell'].includes(x.side)||!validDate(x.date)||![x.amount,x.qty,x.price,x.rate].every(positive))throw Error('매수·매도 구분, 거래일, 금액, 수량, 통화를 확인해 주세요.');}
+ for(const s of d.stocks)stockTotals(d,s.id);
+ for(const x of d.incomes){const a=d.accounts.find(a=>a.id===x.accountId),item=d.incomeItems.find(i=>i.id===x.itemId);if(!a||!item||item.code!==a.code||!['dividend','interest'].includes(x.kind)||!validDate(x.date)||!positive(x.gross)||!nonneg(x.tax)||x.tax>x.gross||!text(x.memo,200))throw Error('입금일·지급액·차감액·귀속 항목·통화를 확인해 주세요.');x.stockId=item.stockId;}
+ if(d.order===undefined)d.order={};if(!d.order||typeof d.order!=='object'||Array.isArray(d.order))throw Error('정렬 정보를 확인해 주세요.');
  for(const key of ['groups','incomes'])if(d.order[key]!==undefined&&(!Array.isArray(d.order[key])||d.order[key].length>40000||d.order[key].some(id=>typeof id!=='string'||id.length>100)))throw Error('정렬 정보를 확인해 주세요.');
- d.order={groups:groupList(d).map(g=>g.id),incomes:incomeEntries(d).map(e=>e.key)};d.version=3;
- return JSON.parse(JSON.stringify(d));
+ d.order={groups:groupList(d).map(g=>g.id),incomes:incomeEntries(d,true).map(e=>e.key)};d.version=4;return d;
 }
 function investedKRW(d,amount=totals(d).principal){if(amount===0)return 0;const average=totals(d).average;return average===null?null:Math.round(average*amount);}
 // MODEL END
+
 // GITHUB SYNC START
 const GITHUB_DATA_PATH='data/overseas-ledger.json';
 const GITHUB_FALLBACK_PATH='overseas-ledger.json';
@@ -248,7 +262,7 @@ function gitConfig(value){
  return c;
 }
 const gitTarget=c=>`${c.owner.toLowerCase()}/${c.repo.toLowerCase()}:${c.branch}:${GITHUB_DATA_PATH}`;
-const ledgerText=d=>JSON.stringify(validate(d));
+const ledgerText=d=>JSON.stringify(validate(d),(_,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]])):value);
 const emptyLedger=d=>ledgerText(d)===ledgerText(blank());
 function utf8Base64(text){const bytes=new TextEncoder().encode(text);let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(binary);}
 function fromUtf8Base64(text){const binary=atob(text.replace(/\s/g,''));return new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(binary,c=>c.charCodeAt(0)));}
@@ -266,8 +280,11 @@ class GitHubLedgerClient{
   if(file===null&&!this.pathResolved){const fallback=await this.request('/contents/'+GITHUB_FALLBACK_PATH+ref,'GET',undefined,true);if(fallback!==null){this.dataPath=GITHUB_FALLBACK_PATH;file=fallback;}else{const parent=await this.request('/contents/data'+ref,'GET',undefined,true);if(parent!==null&&!Array.isArray(parent))this.dataPath=GITHUB_FALLBACK_PATH;}}
   this.pathResolved=true;if(file===null)return null;
   if(file.type!=='file'||file.encoding!=='base64'||typeof file.content!=='string'||file.size>1000000||!/^[a-f0-9]{40,64}$/.test(file.sha))throw Error('저장된 데이터 파일의 형식 또는 크기를 확인해 주세요.');
-  let payload;try{payload=JSON.parse(fromUtf8Base64(file.content));}catch{throw Error('GitHub 데이터 파일을 읽을 수 없습니다. 기존 파일을 덮어쓰지 않았습니다.');}
-  const d=payload.format==='overseas-ledger'?payload.data:payload;return{data:validate(d),sha:file.sha,savedAt:typeof payload.savedAt==='string'?payload.savedAt:''};
+  const invalid=reason=>({invalid:true,reason,sha:file.sha,path:this.dataPath,rawBase64:file.content,savedAt:''});
+  let payload;try{payload=JSON.parse(fromUtf8Base64(file.content));}catch{return invalid('파일이 비어 있거나 JSON 형식이 아닙니다.');}
+  const d=payload?.format==='overseas-ledger'?payload.data:payload;
+  if(d?.version>4)throw Error('더 최신 버전의 장부입니다. 최신 HTML로 업데이트한 뒤 연결해 주세요.');
+  try{return{data:validate(d),sha:file.sha,savedAt:typeof payload?.savedAt==='string'?payload.savedAt:''};}catch(e){return invalid(e.message);}
  }
  async write(data,sha){
   await this.verify();const savedAt=new Date().toISOString(),payload=JSON.stringify({format:'overseas-ledger',version:1,savedAt,data:validate(data)},null,2);
@@ -285,6 +302,7 @@ class GitLedgerSync{
  fail(error){this.phase='error';this.message=error.message;this.emit();}
  clean(remote){this.base=ledgerText(remote.data);this.sha=remote.sha;this.remote=null;this.savedAt=remote.savedAt;this.h.saveBase?.({target:this.target,data:remote.data,sha:remote.sha,savedAt:remote.savedAt});this.phase=this.dirty()?'pending':'synced';this.message='';}
  reconcile(remote){
+  if(remote?.invalid){this.remote=remote;this.phase='invalid';this.message='GitHub 파일은 있지만 장부 형식으로 읽을 수 없습니다. 원본을 백업하고 현재 기기 기록으로 복구할 수 있습니다.';return;}
   const local=ledgerText(this.h.getData()),remoteText=remote?ledgerText(remote.data):null;this.remote=remote;this.message='';
   if(!remote){this.phase=this.base===null?'new':'conflict';if(this.phase==='conflict')this.message='GitHub에서 데이터 파일이 삭제되었거나 이동되었습니다.';return;}
   if(local===remoteText){this.clean(remote);return;}
@@ -312,7 +330,7 @@ class GitLedgerSync{
   const run=this.generation,client=this.client,snapshot=validate(this.h.getData());this.busy=true;this.phase='saving';this.message='';this.emit();
   try{const result=await client.write(snapshot,this.sha);if(run===this.generation)this.clean(result);}
   catch(e){if(run!==this.generation)return;
-   if([409,422].includes(e.status)){try{const remote=await client.read();if(run!==this.generation)return;if(remote?.sha!==this.sha){this.remote=remote;this.phase='conflict';this.message='다른 PC의 변경이 있어 저장을 멈췄습니다. 사용할 기록을 선택해 주세요.';}else this.fail(e);}catch(readError){if(run===this.generation)this.fail(readError);}}
+   if([409,422].includes(e.status)){try{const remote=await client.read();if(run!==this.generation)return;if(remote?.invalid)this.reconcile(remote);else if(remote?.sha!==this.sha){this.remote=remote;this.phase='conflict';this.message='다른 PC의 변경이 있어 저장을 멈췄습니다. 사용할 기록을 선택해 주세요.';}else this.fail(e);}catch(readError){if(run===this.generation)this.fail(readError);}}
    else this.fail(e);
   }finally{if(run===this.generation){this.busy=false;this.emit();if(this.phase==='pending')this.schedule();}}
  }
@@ -322,13 +340,13 @@ class GitLedgerSync{
   finally{if(run===this.generation){this.busy=false;this.emit();if(this.phase==='pending')this.schedule();}}
  }
  async choose(which){
-  if(!this.client||this.busy||!['new','conflict','waiting'].includes(this.phase))return;
+  if(!this.client||this.busy||!['new','conflict','waiting','invalid'].includes(this.phase))return;
   if(!this.h.canApply()){this.message='입력 중인 내용을 먼저 저장하거나 취소해 주세요.';this.emit();return;}
   clearTimeout(this.timer);const run=this.generation,client=this.client,expected=this.remote?.sha||null;this.busy=true;this.emit();
   try{await client.verify();const latest=await client.read();if(run!==this.generation)return;
-   if(which==='remote'){if(!latest)throw Error('GitHub에서 불러올 데이터 파일이 없습니다.');this.h.applyData(latest.data);this.clean(latest);}
-   else{if((latest?.sha||null)!==expected){this.remote=latest;this.phase='conflict';this.message='확인하는 동안 GitHub 기록이 다시 변경되었습니다. 최신 기록을 확인하고 다시 선택해 주세요.';return;}
-    if(latest)this.h.recover?.(latest.data,'GitHub 교체 전');this.sha=latest?.sha||null;this.base=latest?ledgerText(latest.data):null;this.phase='pending';this.remote=null;
+   if(which==='remote'){if(!latest||latest.invalid)throw Error('GitHub에서 불러올 정상 장부가 없습니다. 원본 백업 후 복구를 선택해 주세요.');this.h.applyData(latest.data);this.clean(latest);}
+   else{if((latest?.sha||null)!==expected){this.remote=latest;this.phase=latest?.invalid?'invalid':'conflict';this.message='확인하는 동안 GitHub 파일이 다시 변경되었습니다. 최신 기록을 확인하고 다시 선택해 주세요.';return;}
+    if(latest?.invalid)this.h.recoverRaw?.(latest);else if(latest)this.h.recover?.(latest.data,'GitHub 교체 전');this.sha=latest?.sha||null;this.base=latest&&!latest.invalid?ledgerText(latest.data):null;this.phase='pending';this.remote=null;this.message='';
    }
   }catch(e){if(run===this.generation)this.fail(e);}finally{if(run===this.generation){this.busy=false;this.emit();if(this.phase==='pending'){if(this.base===null&&emptyLedger(this.h.getData())){this.base='';}this.schedule();}}}
  }
@@ -336,15 +354,16 @@ class GitLedgerSync{
 // GITHUB SYNC END
 
 const KEY='overseas-ledger-preview-v1';
-const CONFIG_KEY=KEY+'-github-config',BASE_KEY=KEY+'-github-base',SESSION_KEY=KEY+'-github-session',RECOVERY_KEY=KEY+'-recovery';
+const CONFIG_KEY=KEY+'-github-config',BASE_KEY=KEY+'-github-base',SESSION_KEY=KEY+'-github-session',RECOVERY_KEY=KEY+'-recovery',RAW_RECOVERY_KEY=KEY+'-raw-recovery';
 let data=validate(blank()),storage=true,loadIssue='';
 try{const raw=localStorage.getItem(KEY);if(raw)data=validate(JSON.parse(raw));const probe=KEY+'-probe';localStorage.setItem(probe,'1');localStorage.removeItem(probe);}catch(e){storage=false;loadIssue='기기의 기존 기록을 읽지 못했거나 저장이 제한되어 있습니다. 데이터 백업을 확인해 주세요.';}
 let tab='main',expanded=new Set(),editor=null,deleteConfirm='',toast=loadIssue,undo=null,backup=false,importReady=null;
 let incomeYear='',incomeMonth='',incomeExpanded=new Set();
-let gitSync=null,syncOpen=false,syncConfirm='',syncTokenDraft='',recovery=null;
+let gitSync=null,syncOpen=false,syncConfirm='',syncTokenDraft='',recovery=null,rawRecovery=null;
 let syncDraft={owner:location.hostname.endsWith('.github.io')?location.hostname.split('.')[0]:'',repo:'overseas-ledger-data',branch:'main'};
 try{const raw=localStorage.getItem(CONFIG_KEY);if(raw)syncDraft=gitConfig(JSON.parse(raw));}catch{}
 try{const raw=JSON.parse(localStorage.getItem(RECOVERY_KEY)||'null');if(raw)recovery={savedAt:raw.savedAt,label:raw.label,data:validate(raw.data)};}catch{}
+try{const raw=JSON.parse(localStorage.getItem(RAW_RECOVERY_KEY)||'null');if(raw&&typeof raw.rawBase64==='string')rawRecovery=raw;}catch{}
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=(v,d=2)=>new Intl.NumberFormat('ko-KR',{minimumFractionDigits:d,maximumFractionDigits:d}).format(Math.abs(v)<1e-9?0:v);
 const qty=v=>new Intl.NumberFormat('ko-KR',{maximumFractionDigits:8}).format(v);
@@ -372,29 +391,32 @@ function accountForm(id=''){
 }
 function stockForm(id=''){
  const s=stock(id)||{ticker:'',name:'',code:'USD',groupId:editor?.parent||''},locked=!!id&&(data.trades.some(x=>x.stockId===id)||data.incomes.some(x=>x.stockId===id));
- return formStart('stock',id?'종목 수정':'종목 추가',id)+field('종목 코드','ticker',s.ticker,'text','required maxlength="20" placeholder="예: JEPQ"')+field('종목 이름 / 메모','name',s.name,'text','maxlength="80" placeholder="선택 입력"')+field('거래 통화','code',s.code,'text',`required maxlength="3" pattern="[A-Za-z]{3}" ${locked?'disabled':''}`)+`<label>소속 그룹<select name="groupId">${groupOptions(s.groupId)}</select></label>`+formEnd('그룹을 바꾸면 해당 그룹의 총 매수원금과 종목 비중이 함께 갱신됩니다.');
+ return formStart('stock',id?'종목 수정':'종목 추가',id)+field('종목 코드','ticker',s.ticker,'text','required maxlength="20" placeholder="예: JEPQ"')+field('종목 이름 / 메모','name',s.name,'text','maxlength="80" placeholder="선택 입력"')+field('거래 통화','code',s.code,'text',`required maxlength="3" pattern="[A-Za-z]{3}" ${locked?'disabled':''}`)+`<label>소속 그룹<select name="groupId">${groupOptions(s.groupId)}</select></label>`+(!id?'<label>배당금 항목<select name="createIncome"><option value="yes">함께 추가</option><option value="no">추가하지 않음</option></select></label>':'')+formEnd('배당금 항목은 보유 종목과 별도로 관리할 수 있습니다.');
 }
 function tradeForm(stockId,id=''){
  const s=stock(stockId),list=data.accounts.filter(a=>a.code===s.code);if(!list.length)return `<div class="ol-alert">${esc(s.code)} 통화 계정을 먼저 추가해 주세요. ${button('환전 관리로 이동','tab','sub')}</div>`;
- const x=data.trades.find(x=>x.id===id)||{date:today(),accountId:list[0].id,amount:'',qty:'',price:'',rate:''},a=account(x.accountId);const avg=accountTotals(data,a.id).average;
- return formStart('trade',esc(s.ticker)+' 매수 '+(id?'수정':'기록'),id,stockId)+field('매수일','date',x.date,'date','required min="1900-01-01" max="2199-12-31"')+field(`매수금액 (${esc(s.code)})`,'amount',x.amount,'number','required placeholder="실제 결제금액"')+field('매수주수','qty',x.qty,'number','required placeholder="소수점 입력 가능"')+field(`매수당시 주가 (${esc(s.code)})`,'price',x.price,'number','required')+field(`매수당시 환율 (원 / ${a.unit} ${esc(s.code)})`,'rate',x.rate|| (avg?num(avg,4).replaceAll(',',''):''),'number','required')+`<label>매수한 통화 계정<select name="accountId">${options(list,x.accountId,a=>a.label+' · '+money(accountTotals(data,a.id).balance,a.code))}</select></label>`+formEnd('매수금액은 주수 × 주가로 자동 입력되며, 실제 결제금액으로 직접 바꿀 수 있어요. 환율은 확인 후 수정해 주세요.');
+ const x=data.trades.find(x=>x.id===id)||{date:today(),side:editor?.side||'buy',accountId:list[0].id,amount:'',qty:'',price:'',rate:''},a=account(x.accountId),avg=accountTotals(data,a.id).average,sell=x.side==='sell';
+ return formStart('trade',esc(s.ticker)+' 매수·매도 '+(id?'수정':'기록'),id,stockId)+`<label>거래 구분<select name="side"><option value="buy" ${!sell?'selected':''}>매수</option><option value="sell" ${sell?'selected':''}>매도</option></select></label>`+field('거래일','date',x.date,'date','required min="1900-01-01" max="2199-12-31"')+field(`${sell?'매도금액 · 실수령':'매수금액 · 실결제'} (${esc(s.code)})`,'amount',x.amount,'number','required')+field(sell?'매도주수':'매수주수','qty',x.qty,'number','required placeholder="소수점 입력 가능"')+field(`거래 당시 주가 (${esc(s.code)})`,'price',x.price,'number','required')+field(`거래 당시 환율 (원 / ${a.unit} ${esc(s.code)})`,'rate',x.rate||(avg>0?round(avg,4):''),'number','required')+`<label>결제 / 입금 통화 계정<select name="accountId">${options(list,x.accountId,a=>a.label+' · '+money(accountTotals(data,a.id).balance,a.code))}</select></label>`+formEnd('매수는 실제 결제액, 매도는 세금·수수료를 뺀 실제 입금액을 입력하세요. 매도 시 보유 주수와 이동평균 매수원금을 차감합니다.');
 }
 function fxForm(accountId,id=''){
- const a=account(accountId),x=data.exchanges.find(x=>x.id===id)||{date:today(),krw:'',amount:'',rate:'',fee:0};
- return formStart('exchange',esc(a.label)+' 환전 '+(id?'수정':'기록'),id,accountId)+field('환전일','date',x.date,'date','required min="1900-01-01" max="2199-12-31"')+field('낸 원화 · 수수료 포함 (원)','krw',x.krw,'number','required')+field(`받은 외화 (${esc(a.code)})`,'amount',x.amount,'number','required')+field(`매수당시 환율 (원 / ${a.unit} ${esc(a.code)})`,'rate',x.rate,'number','required')+field('포함된 수수료 (원)','fee',x.fee,'number','required')+formEnd('수수료는 낸 원화에 이미 포함된 금액입니다. 원금에 다시 더하지 않아요.');
+ const a=account(accountId),x=data.exchanges.find(x=>x.id===id)||{date:today(),direction:editor?.side||'buy',krw:'',amount:'',rate:'',fee:0},sell=x.direction==='sell';
+ return formStart('exchange',esc(a.label)+' 환전 '+(id?'수정':'기록'),id,accountId)+`<label>환전 방향<select name="direction"><option value="buy" ${!sell?'selected':''}>원화 → ${esc(a.code)}</option><option value="sell" ${sell?'selected':''}>${esc(a.code)} → 원화</option></select></label>`+field('환전일','date',x.date,'date','required min="1900-01-01" max="2199-12-31"')+field(sell?'받은 원화 · 수수료 차감 후 (원)':'낸 원화 · 수수료 포함 (원)','krw',x.krw,'number','required')+field(`${sell?'사용한':'받은'} 외화 (${esc(a.code)})`,'amount',x.amount,'number','required')+field(`적용 환율 (원 / ${a.unit} ${esc(a.code)})`,'rate',x.rate,'number','required')+field('수수료 (원)','fee',x.fee,'number','required')+formEnd('실제로 낸 원화 또는 받은 원화를 입력하세요. 수수료는 확인용이며 합계에 다시 더하거나 빼지 않습니다. 외화→원화 환전은 외화 잔액에서 차감됩니다.');
 }
-function incomeStockOptions(code,selected,kind){return `<option value="" ${!selected?'selected':''}>${kind==='interest'?'종목 없음 · 계좌 이자':'종목을 선택하세요'}</option>`+options(data.stocks.filter(s=>s.code===code),selected,s=>s.ticker);}
+function incomeItemForm(id=''){
+ const item=data.incomeItems.find(i=>i.id===id)||{label:'',kind:'interest',code:'USD',stockId:''},locked=data.incomes.some(x=>x.itemId===id);
+ return formStart('incomeitem',id?'배당금·이자 항목 수정':'배당금·이자 항목 추가',id)+field('항목 이름','label',item.label,'text','required maxlength="80" placeholder="예: 이자1, 이자2, JEPQ 배당금"')+`<label>기본 구분<select name="kind"><option value="dividend" ${item.kind==='dividend'?'selected':''}>배당금</option><option value="interest" ${item.kind==='interest'?'selected':''}>이자</option></select></label>`+field('통화 코드','code',item.code,'text',`required maxlength="3" pattern="[A-Za-z]{3}" ${locked?'disabled':''}`)+`<label>연결 종목 · 선택<select name="stockId" ${locked?'disabled':''}><option value="">종목 연결 없음</option>${options(data.stocks,item.stockId,s=>s.ticker+' · '+s.code)}</select></label>`+formEnd(locked?'수령 기록이 있는 항목은 이름과 기본 구분만 변경할 수 있습니다.':'보유 종목 없이 이자1·이자2처럼 별도 항목을 만들 수 있습니다.');
+}
 function incomeForm(id=''){
- if(!data.accounts.length)return '<div class="ol-alert">환전 관리에서 입금받을 통화 계정을 먼저 추가해 주세요.</div>';
- const parent=editor?.parent||'',selected=parent.startsWith('stock:')?stock(parent.slice(6)):parent.startsWith('account:')?null:data.stocks[0];
- const selectedAccount=parent.startsWith('account:')?account(parent.slice(8)):data.accounts.find(a=>a.code===selected?.code)||data.accounts[0];
+ const old=data.incomes.find(x=>x.id===id),itemId=old?.itemId||editor?.parent||incomeEntries(data)[0]?.id,item=data.incomeItems.find(i=>i.id===itemId);
+ if(!item)return `<div class="ol-alert">배당금·이자를 기록할 항목을 먼저 추가해 주세요. ${button('+ 항목 추가','new-incomeitem')}</div>`;
+ const list=data.accounts.filter(a=>a.code===item.code);if(!list.length)return `<div class="ol-alert">${esc(item.code)} 입금 계정을 환전 관리에서 추가해 주세요. ${button('환전 관리','tab','sub')}</div>`;
  const now=today(),date=(!incomeYear||(now.startsWith(incomeYear)&&(!incomeMonth||now.slice(5,7)===incomeMonth)))?now:`${incomeYear}-${incomeMonth||'01'}-01`;
- const x=data.incomes.find(x=>x.id===id)||{date,kind:selected?'dividend':'interest',stockId:selected?.id||'',accountId:selectedAccount.id,gross:'',tax:0,memo:''};const a=account(x.accountId);
- return formStart('income',id?'배당금·이자 수정':'배당금·이자 기록',id)+field('입금일','date',x.date,'date','required min="1900-01-01" max="2199-12-31"')+`<label>구분<select name="kind"><option value="dividend" ${x.kind==='dividend'?'selected':''}>배당·배당금</option><option value="interest" ${x.kind==='interest'?'selected':''}>이자</option></select></label><label>입금 통화 계정<select name="accountId">${options(data.accounts,x.accountId,a=>a.label+' · '+a.code)}</select></label><label>귀속 종목<select name="stockId" ${x.kind==='dividend'?'required':''}>${incomeStockOptions(a.code,x.stockId,x.kind)}</select></label>`+field(`지급액 · 차감 전 (${esc(a.code)})`,'gross',x.gross,'number','required')+field(`세금·차감액 (${esc(a.code)})`,'tax',x.tax,'number','required')+field('메모','memo',x.memo,'text','maxlength="200" placeholder="선택 입력"')+`<label>실수령액 <input name="net" value="${money(net({gross:Number(x.gross)||0,tax:x.tax}),a.code)}" readonly></label>`+formEnd('배당금과 이자 모두 종목에 연결할 수 있어요. 예수금 이자는 ‘종목 없음 · 계좌 이자’로 기록하세요.');
+ const x=old||{date,kind:item.kind,itemId:item.id,accountId:list[0].id,gross:'',tax:0,memo:''},a=account(x.accountId),items=data.incomeItems.filter(i=>!i.hidden||i.id===x.itemId);
+ return formStart('income',id?'배당금·이자 수정':'배당금·이자 기록',id)+`<label>귀속 항목<select name="itemId">${options(items,x.itemId,i=>i.label+' · '+i.code)}</select></label>`+field('입금일','date',x.date,'date','required min="1900-01-01" max="2199-12-31"')+`<label>구분<select name="kind"><option value="dividend" ${x.kind==='dividend'?'selected':''}>배당금</option><option value="interest" ${x.kind==='interest'?'selected':''}>이자</option></select></label><label>입금 통화 계정<select name="accountId" required>${options(list,x.accountId,a=>a.label+' · '+a.code)}</select></label>`+field(`지급액 · 차감 전 (${esc(a.code)})`,'gross',x.gross,'number','required')+field(`세금·차감액 (${esc(a.code)})`,'tax',x.tax,'number','required')+field('메모','memo',x.memo,'text','maxlength="200" placeholder="선택 입력"')+`<label>실수령액<input name="net" value="${money(net({gross:Number(x.gross)||0,tax:x.tax}),a.code)}" readonly></label>`+formEnd('실수령액은 선택한 통화 계정 잔액에 더해집니다.');
 }
 function renderStock(s,allocation,index,length){
  const t=stockTotals(data,s.id),isOpen=expanded.has(s.id),share=allocation.rows.find(x=>x.stockId===s.id),percent=share.percent===null?'—':num(share.percent)+'%';
- return `<section class="ol-item"><div class="ol-itembar">${button(`<span class="ol-avatar">${esc(s.ticker.slice(0,4))}</span><span class="ol-identity"><strong>${esc(s.ticker)}</strong><small>${esc(s.name||s.code)}</small></span><span class="ol-itemnums"><div><small>보유 주수</small><strong>${qty(t.qty)}<span class="ol-unit">주</span></strong></div><div><small>매수원금 · ${esc(s.code)}</small><strong>${money(t.amount,s.code)}</strong></div><div class="ol-weight"><small>그룹 내 비중</small><strong>${percent}</strong><span class="ol-weight-track" aria-hidden="true"><span style="width:${share.percent||0}%"></span></span></div></span><span class="ol-chevron" aria-hidden="true">${isOpen?'⌃':'⌄'}</span>`,'toggle',s.id,'ol-toggle',`aria-expanded="${isOpen}" aria-controls="detail-${s.id}" aria-label="${esc(s.ticker)} 매수 내역 ${isOpen?'접기':'펼치기'}"`)}<div class="ol-rowtools">${moveControls('stock',s.id,s.ticker+' 보유 종목',index,length)}${button('+ 매수','new-trade',s.id,'ol-addrecord',`aria-label="${esc(s.ticker)} 매수 추가"`)}</div></div><div class="ol-detail" id="detail-${s.id}" ${isOpen?'':'hidden'}><div class="ol-detailhead"><small>매수 ${t.count}건 · 평균 매수가 ${money(t.qty?t.amount/t.qty:0,s.code)}</small><div class="ol-actions"><label class="ol-move-label">소속 그룹<select data-move-stock="${s.id}" aria-label="${esc(s.ticker)} 소속 그룹">${groupOptions(s.groupId)}</select></label>${editDelete('stock',s.id,s.ticker+' 종목')}</div></div>${editor?.kind==='trade'&&editor.parent===s.id?tradeForm(s.id,editor.id):''}<div class="ol-tablewrap"><table aria-label="${esc(s.ticker)} 매수 기록"><thead><tr><th>매수일</th><th class="ol-num">매수금액 (${esc(s.code)})</th><th class="ol-num">매수주수</th><th class="ol-num">당시 주가</th><th class="ol-num">당시 환율</th><th>매수한 통화</th><th>관리</th></tr></thead><tbody>${sorted(data.trades.filter(x=>x.stockId===s.id)).map(x=>`<tr><td>${x.date}</td><td class="ol-num">${money(x.amount,s.code)}</td><td class="ol-num">${qty(x.qty)}주</td><td class="ol-num">${money(x.price,s.code)}</td><td class="ol-num">${num(x.rate)}원<br><small>/${account(x.accountId).unit} ${esc(s.code)}</small></td><td>${esc(account(x.accountId).label)}</td><td>${editDelete('trade',x.id,'매수 기록')}</td></tr>`).join('')||'<tr><td colspan="7" class="ol-empty">첫 매수 기록을 추가해 주세요.</td></tr>'}</tbody></table></div></div></section>`;
+ return `<section class="ol-item"><div class="ol-itembar">${button(`<span class="ol-avatar">${esc(s.ticker.slice(0,4))}</span><span class="ol-identity"><strong>${esc(s.ticker)}</strong><small>${esc(s.name||s.code)}</small></span><span class="ol-itemnums"><div><small>보유 주수</small><strong>${qty(t.qty)}<span class="ol-unit">주</span></strong></div><div><small>보유 매수원금 · ${esc(s.code)}</small><strong>${money(t.amount,s.code)}</strong></div><div class="ol-weight"><small>그룹 내 비중</small><strong>${percent}</strong><span class="ol-weight-track" aria-hidden="true"><span style="width:${share.percent||0}%"></span></span></div></span><span class="ol-chevron" aria-hidden="true">${isOpen?'⌃':'⌄'}</span>`,'toggle',s.id,'ol-toggle',`aria-expanded="${isOpen}" aria-controls="detail-${s.id}" aria-label="${esc(s.ticker)} 거래 내역 ${isOpen?'접기':'펼치기'}"`)}<div class="ol-rowtools">${moveControls('stock',s.id,s.ticker+' 보유 종목',index,length)}${button('+ 매수','new-trade',s.id,'ol-addrecord',`aria-label="${esc(s.ticker)} 매수 추가"`)}${button('매도','new-sell',s.id,'ol-addrecord',`aria-label="${esc(s.ticker)} 매도 추가"`)}</div></div><div class="ol-detail" id="detail-${s.id}" ${isOpen?'':'hidden'}><div class="ol-detailhead"><small>매수 ${t.buyCount}건 · 매도 ${t.sellCount}건 · 보유 평균 매수가 ${money(t.qty?t.amount/t.qty:0,s.code)}<br>실현손익 ${money(t.realized,s.code)} · 이동평균법</small><div class="ol-actions"><label class="ol-move-label">소속 그룹<select data-move-stock="${s.id}" aria-label="${esc(s.ticker)} 소속 그룹">${groupOptions(s.groupId)}</select></label>${editDelete('stock',s.id,s.ticker+' 종목')}</div></div>${editor?.kind==='trade'&&editor.parent===s.id?tradeForm(s.id,editor.id):''}<div class="ol-tablewrap"><table aria-label="${esc(s.ticker)} 거래 기록"><thead><tr><th>거래일</th><th>구분</th><th class="ol-num">실제 결제·입금액</th><th class="ol-num">주수</th><th class="ol-num">당시 주가</th><th class="ol-num">당시 환율</th><th>통화 계정</th><th>관리</th></tr></thead><tbody>${sorted(data.trades.filter(x=>x.stockId===s.id)).map(x=>`<tr><td>${x.date}</td><td><span class="ol-pill">${x.side==='sell'?'매도':'매수'}</span></td><td class="ol-num">${money(x.amount,s.code)}</td><td class="ol-num">${qty(x.qty)}주</td><td class="ol-num">${money(x.price,s.code)}</td><td class="ol-num">${num(x.rate)}원<br><small>/${account(x.accountId).unit} ${esc(s.code)}</small></td><td>${esc(account(x.accountId).label)}</td><td>${editDelete('trade',x.id,(x.side==='sell'?'매도':'매수')+' 기록')}</td></tr>`).join('')||'<tr><td colspan="8" class="ol-empty">첫 매수 기록을 추가해 주세요.</td></tr>'}</tbody></table></div></div></section>`;
 }
 function renderStocks(){
  const groups=groupList(data);
@@ -407,34 +429,37 @@ function incomePeriodLabel(){return !incomeYear?'전체 기간':incomeYear+'년'
 function incomeTable(rows,label){return `<div class="ol-tablewrap"><table aria-label="${esc(label)} 입금 기록"><thead><tr><th>입금일</th><th>구분</th><th>입금 계정</th><th class="ol-num">지급액</th><th class="ol-num">차감액</th><th class="ol-num">실수령액</th><th>관리</th></tr></thead><tbody>${sorted(rows).map(x=>{const a=account(x.accountId);return `<tr><td>${x.date}</td><td><span class="ol-pill">${x.kind==='dividend'?'배당금':'이자'}</span>${x.memo?'<br><small>'+esc(x.memo)+'</small>':''}</td><td>${esc(a.label)}<br><small>${esc(a.code)}</small></td><td class="ol-num">${money(x.gross,a.code)}</td><td class="ol-num">${money(x.tax,a.code)}</td><td class="ol-num"><strong>${money(net(x),a.code)}</strong></td><td>${editDelete('income',x.id,label+' 입금 기록')}</td></tr>`;}).join('')||'<tr><td colspan="7" class="ol-empty">선택한 기간에 수령한 내역이 없습니다.</td></tr>'}</tbody></table></div>`;}
 function renderIncome(){
  const rows=periodIncomes(data,incomeYear,incomeMonth),byCurrency=incomeByCurrency(data,rows),amounts=kind=>byCurrency.filter(x=>x.count||x.code==='USD').map(x=>money(x[kind],x.code)).join(' · ')||money(0,data.accounts[0]?.code||'USD');
- const years=[...new Set([today().slice(0,4),incomeYear,...data.incomes.map(x=>x.date.slice(0,4))].filter(Boolean))].sort().reverse();
- const entries=incomeEntries(data);
- return `<section class="ol-income" aria-label="종목별 배당금과 이자"><div class="ol-sectionhead"><h2>배당금 · 이자 <small>종목별 수령 내역</small></h2>${button('+ 입금 기록','new-income')}</div><div class="ol-period"><div class="ol-period-title"><strong>${incomePeriodLabel()}</strong><small>입금일 기준 · 실수령액</small></div><div class="ol-period-controls"><label>연도<select data-income-filter="year" aria-label="수령 연도"><option value="">전체 연도</option>${years.map(y=>`<option value="${y}" ${y===incomeYear?'selected':''}>${y}년</option>`).join('')}</select></label><label>월<select data-income-filter="month" aria-label="수령 월" ${incomeYear?'':'disabled'}><option value="">전체 월</option>${Array.from({length:12},(_,i)=>{const m=String(i+1).padStart(2,'0');return `<option value="${m}" ${m===incomeMonth?'selected':''}>${i+1}월</option>`;}).join('')}</select></label></div></div>${editor?.kind==='income'?incomeForm(editor.id):''}<div class="ol-incomebox"><div class="ol-incomevalues" aria-live="polite"><div><small>배당·배당금 실수령</small><strong>${amounts('dividend')}</strong></div><div><small>이자 실수령</small><strong>${amounts('interest')}</strong></div><div class="ol-income-grand"><small>총 수령액 · ${incomePeriodLabel()}</small><strong>${amounts('total')}</strong></div></div><div class="ol-income-list">${entries.map((entry,index)=>{
- const selected=rows.filter(entry.match),t=incomeTotal(selected),open=incomeExpanded.has(entry.key),detailId='income-'+entry.key.replace(':','-');
- return `<section class="ol-income-item"><div class="ol-itembar">${button(`<span class="ol-identity"><strong>${esc(entry.label)}</strong><small>${esc(entry.sub)} · ${t.count}건</small></span><span class="ol-itemnums"><div><small>배당·배당금</small><strong>${money(t.dividend,entry.code)}</strong></div><div><small>이자</small><strong>${money(t.interest,entry.code)}</strong></div><div><small>합계</small><strong>${money(t.total,entry.code)}</strong></div></span><span class="ol-chevron" aria-hidden="true">${open?'⌃':'⌄'}</span>`,'toggle-income',entry.key,'ol-toggle',`aria-expanded="${open}" aria-controls="${detailId}" aria-label="${esc(entry.label+' '+entry.sub)} 수령 내역 ${open?'접기':'펼치기'}"`)}<div class="ol-rowtools">${moveControls('income',entry.key,entry.label+' '+entry.sub+' 수령 항목',index,entries.length)}${button('+ 입금','new-income',entry.key,'ol-addrecord',`aria-label="${esc(entry.label+' '+entry.sub)} 입금 추가"`)}</div></div><div class="ol-income-detail" id="${detailId}" ${open?'':'hidden'}>${open?incomeTable(selected,entry.label+' '+entry.sub):''}</div></section>`;
- }).join('')||'<div class="ol-empty">종목을 추가하거나 계좌 이자를 기록해 주세요.</div>'}</div></div></section>`;
+ const years=[...new Set([today().slice(0,4),incomeYear,...data.incomes.map(x=>x.date.slice(0,4))].filter(Boolean))].sort().reverse(),entries=incomeEntries(data),hidden=data.incomeItems.filter(i=>i.hidden);
+ return `<section class="ol-income" aria-label="배당금과 이자 항목"><div class="ol-sectionhead"><h2>배당금 · 이자 <small>항목별 수령 내역</small></h2><div class="ol-actions">${button('+ 항목 추가','new-incomeitem','','ol-primary')}${button('보유 종목에서 추가','income-from-stocks')}${button('+ 입금 기록','new-income')}</div></div><div class="ol-period"><div class="ol-period-title"><strong>${incomePeriodLabel()}</strong><small>입금일 기준 · 실수령액${hidden.length?' · 숨긴 항목도 합계 포함':''}</small></div><div class="ol-period-controls"><label>연도<select data-income-filter="year" aria-label="수령 연도"><option value="">전체 연도</option>${years.map(y=>`<option value="${y}" ${y===incomeYear?'selected':''}>${y}년</option>`).join('')}</select></label><label>월<select data-income-filter="month" aria-label="수령 월" ${incomeYear?'':'disabled'}><option value="">전체 월</option>${Array.from({length:12},(_,i)=>{const m=String(i+1).padStart(2,'0');return `<option value="${m}" ${m===incomeMonth?'selected':''}>${i+1}월</option>`;}).join('')}</select></label></div></div>${editor?.kind==='incomeitem'?incomeItemForm(editor.id):''}${editor?.kind==='income'?incomeForm(editor.id):''}<div class="ol-incomebox"><div class="ol-incomevalues" aria-live="polite"><div><small>배당금 실수령</small><strong>${amounts('dividend')}</strong></div><div><small>이자 실수령</small><strong>${amounts('interest')}</strong></div><div class="ol-income-grand"><small>총 수령액 · ${incomePeriodLabel()}</small><strong>${amounts('total')}</strong></div></div><div class="ol-income-list">${entries.map((entry,index)=>{
+ const selected=rows.filter(entry.match),t=incomeTotal(selected),open=incomeExpanded.has(entry.key),detailId='income-'+entry.key;
+ return `<section class="ol-income-item"><div class="ol-itembar">${button(`<span class="ol-identity"><strong>${esc(entry.label)}</strong><small>${esc(entry.sub)} · ${t.count}건</small></span><span class="ol-itemnums"><div><small>배당금</small><strong>${money(t.dividend,entry.code)}</strong></div><div><small>이자</small><strong>${money(t.interest,entry.code)}</strong></div><div><small>합계</small><strong>${money(t.total,entry.code)}</strong></div></span><span class="ol-chevron" aria-hidden="true">${open?'⌃':'⌄'}</span>`,'toggle-income',entry.key,'ol-toggle',`aria-expanded="${open}" aria-controls="${detailId}" aria-label="${esc(entry.label)} 수령 내역 ${open?'접기':'펼치기'}"`)}<div class="ol-rowtools">${moveControls('income',entry.key,entry.label+' 수령 항목',index,entries.length)}${button('+ 입금','new-income',entry.key,'ol-addrecord',`aria-label="${esc(entry.label)} 입금 추가"`)}</div></div><div class="ol-income-detail" id="${detailId}" ${open?'':'hidden'}><div class="ol-detailhead"><small>${esc(entry.code)} · 항목을 숨겨도 기록과 합계는 유지됩니다.</small><div class="ol-actions">${editDelete('incomeitem',entry.id,entry.label+' 항목')}${button('숨기기','hide-incomeitem',entry.id,'ol-rowaction')}</div></div>${open?incomeTable(selected,entry.label):''}</div></section>`;
+ }).join('')||'<div class="ol-empty">배당금을 받는 종목이나 이자1·이자2 같은 별도 항목을 추가하세요.</div>'}</div></div>${hidden.length?`<details class="ol-details"><summary>숨긴 항목 ${hidden.length}개</summary>${hidden.map(i=>`<div class="ol-detailhead"><span>${esc(i.label)} · ${esc(i.code)}</span><div class="ol-actions">${button('다시 표시','show-incomeitem',i.id,'ol-rowaction')}${editDelete('incomeitem',i.id,i.label+' 항목')}</div></div>`).join('')}</details>`:''}</section>`;
 }
 function renderAccounts(){
- return `<div class="ol-sectionhead"><h2>통화 계정 <small>${data.accounts.length}개</small></h2>${button('+ 통화 추가','new-account','','ol-primary')}</div>${editor?.kind==='account'?accountForm(editor.id):''}<div class="ol-stack">${data.accounts.map(a=>{const t=accountTotals(data,a.id),isOpen=expanded.has(a.id);return `<section class="ol-item"><div class="ol-itembar">${button(`<span class="ol-avatar">${esc(a.code)}</span><span class="ol-identity"><strong>${esc(a.label)}</strong><small>${esc(a.code)} · 환전 ${data.exchanges.filter(x=>x.accountId===a.id).length}건</small></span><span class="ol-itemnums"><div><small>남은 외화</small><strong>${money(t.balance,a.code)}</strong></div><div><small>평균 환율 /${a.unit} ${esc(a.code)}</small><strong>${t.average===null?'—':num(t.average)+'원'}</strong></div></span><span class="ol-chevron" aria-hidden="true">${isOpen?'⌃':'⌄'}</span>`,'toggle',a.id,'ol-toggle',`aria-expanded="${isOpen}" aria-controls="detail-${a.id}" aria-label="${esc(a.label)} 환전 내역 ${isOpen?'접기':'펼치기'}"`)}${button('+ 환전','new-exchange',a.id,'ol-addrecord',`aria-label="${esc(a.label)} 환전 추가"`)}</div><div class="ol-detail" id="detail-${a.id}" ${isOpen?'':'hidden'}><div class="ol-detailhead"><small>낸 원화 ${num(t.krw,0)}원 · 환전한 외화 ${money(t.received,a.code)} · 평균 ${t.average===null?'—':num(t.average)+'원 / '+a.unit+' '+a.code}</small><div>${editDelete('account',a.id,a.label+' 계정')}</div></div>${t.balance<0?'<div class="ol-alert">잔액이 음수입니다. 누락된 환전·입금 내역이나 매수금액을 확인해 주세요.</div>':''}${editor?.kind==='exchange'&&editor.parent===a.id?fxForm(a.id,editor.id):''}<div class="ol-tablewrap"><table aria-label="${esc(a.label)} 환전 기록"><thead><tr><th>환전일</th><th class="ol-num">낸 원화 · 수수료 포함</th><th class="ol-num">받은 외화 (${esc(a.code)})</th><th class="ol-num">당시 환율 /${a.unit} ${esc(a.code)}</th><th class="ol-num">포함된 수수료</th><th>관리</th></tr></thead><tbody>${sorted(data.exchanges.filter(x=>x.accountId===a.id)).map(x=>`<tr><td>${x.date}</td><td class="ol-num">${num(x.krw,0)}원</td><td class="ol-num">${money(x.amount,a.code)}</td><td class="ol-num">${num(x.rate)}원</td><td class="ol-num">${num(x.fee,0)}원</td><td>${editDelete('exchange',x.id,'환전 기록')}</td></tr>`).join('')||'<tr><td colspan="6" class="ol-empty">환전 내역을 추가하면 외화 잔액과 평균 환율을 계산해요.</td></tr>'}</tbody></table></div></div></section>`;}).join('')||'<div class="ol-item ol-empty">달러·엔화 등 관리할 통화 계정을 추가해 주세요.</div>'}</div>`;
+ return `<div class="ol-sectionhead"><h2>통화 계정 <small>${data.accounts.length}개</small></h2>${button('+ 통화 추가','new-account','','ol-primary')}</div>${editor?.kind==='account'?accountForm(editor.id):''}<div class="ol-stack">${data.accounts.map(a=>{const t=accountTotals(data,a.id),isOpen=expanded.has(a.id);return `<section class="ol-item"><div class="ol-itembar">${button(`<span class="ol-avatar">${esc(a.code)}</span><span class="ol-identity"><strong>${esc(a.label)}</strong><small>${esc(a.code)} · 환전 ${data.exchanges.filter(x=>x.accountId===a.id).length}건</small></span><span class="ol-itemnums"><div><small>남은 외화</small><strong>${money(t.balance,a.code)}</strong></div><div><small>평균 환율 /${a.unit} ${esc(a.code)}</small><strong>${t.average===null?'—':num(t.average)+'원'}</strong></div></span><span class="ol-chevron" aria-hidden="true">${isOpen?'⌃':'⌄'}</span>`,'toggle',a.id,'ol-toggle',`aria-expanded="${isOpen}" aria-controls="detail-${a.id}" aria-label="${esc(a.label)} 환전 내역 ${isOpen?'접기':'펼치기'}"`)}<div class="ol-rowtools">${button('+ 환전','new-exchange',a.id,'ol-addrecord',`aria-label="${esc(a.label)} 환전 추가"`)}${button('원화로 환전','new-fx-sell',a.id,'ol-addrecord',`aria-label="${esc(a.label)} 원화로 환전"`)}</div></div><div class="ol-detail" id="detail-${a.id}" ${isOpen?'':'hidden'}><div class="ol-detailhead"><small>낸 원화 ${num(t.krwPaid,0)}원 · 돌려받은 원화 ${num(t.krwReturned,0)}원<br>순투입 원화 ${num(t.krw,0)}원 · 순환전 외화 ${money(t.received,a.code)}</small><div>${editDelete('account',a.id,a.label+' 계정')}</div></div>${t.balance<0?'<div class="ol-alert">잔액이 음수입니다. 누락된 환전·매수·매도·입금 기록을 확인해 주세요.</div>':''}${editor?.kind==='exchange'&&editor.parent===a.id?fxForm(a.id,editor.id):''}<div class="ol-tablewrap"><table aria-label="${esc(a.label)} 환전 기록"><thead><tr><th>환전일</th><th>방향</th><th class="ol-num">실제 낸 / 받은 원화</th><th class="ol-num">외화 (${esc(a.code)})</th><th class="ol-num">당시 환율 /${a.unit} ${esc(a.code)}</th><th class="ol-num">수수료</th><th>관리</th></tr></thead><tbody>${sorted(data.exchanges.filter(x=>x.accountId===a.id)).map(x=>`<tr><td>${x.date}</td><td><span class="ol-pill">${x.direction==='sell'?esc(a.code)+' → 원화':'원화 → '+esc(a.code)}</span></td><td class="ol-num">${num(x.krw,0)}원<br><small>${x.direction==='sell'?'받음 · 수수료 차감 후':'지불 · 수수료 포함'}</small></td><td class="ol-num">${x.direction==='sell'?'−':'+'}${money(x.amount,a.code)}</td><td class="ol-num">${num(x.rate)}원</td><td class="ol-num">${num(x.fee,0)}원</td><td>${editDelete('exchange',x.id,'환전 기록')}</td></tr>`).join('')||'<tr><td colspan="7" class="ol-empty">원화→외화, 외화→원화 환전을 모두 기록할 수 있습니다.</td></tr>'}</tbody></table></div></div></section>`;}).join('')||'<div class="ol-item ol-empty">달러·엔화 등 관리할 통화 계정을 추가해 주세요.</div>'}</div>`;
 }
 function persist(notify=true){try{localStorage.setItem(KEY,JSON.stringify(data));storage=true;}catch(e){storage=false;toast='기기 저장이 제한되어 현재 화면에만 반영했습니다. 데이터 백업을 이용해 주세요.';}if(notify&&gitSync)gitSync.changed();}
 function render(){
  const t=totals(data),neg=data.accounts.filter(a=>accountTotals(data,a.id).balance<0);
- root.innerHTML=`<header class="ol-top"><div class="ol-brand"><div class="ol-mark" aria-hidden="true">N</div><div><h1>해외자산 노트</h1><small>나의 매수 · 배당금 · 환전 기록</small></div></div><div class="ol-actions"><span class="ol-save" data-git-status>${saveStatus()}</span>${button('GitHub 연결','github-toggle','','ol-quiet')}${button('데이터 백업','backup','','ol-quiet')}</div></header><div class="ol-page"><div class="ol-alert ol-git-alert" data-git-alert hidden role="status"></div>${syncOpen?githubPanel():''}${toast?`<div class="ol-toast" role="status"><span>${esc(toast)}</span><div class="ol-actions">${undo?button('되돌리기','undo','','ol-rowaction'):''}${button('닫기','dismiss','','ol-rowaction')}</div></div>`:''}${backup?`<section class="ol-backup"><div class="ol-sectionhead"><h3>기록 백업 · 불러오기</h3>${button('닫기','backup','','ol-quiet')}</div><label>백업 데이터 <textarea data-backup spellcheck="false" aria-label="백업 데이터">${esc(JSON.stringify(data,null,2))}</textarea></label><div class="ol-formfoot"><small>전체 선택 후 복사해 보관하거나, 다른 PC에서 백업을 붙여넣으세요.</small><div class="ol-actions">${button('백업 파일 저장','download-backup')}${recovery?button('교체 전 기록 받기','download-recovery'):''}${button('전체 선택','select-backup')}${button('백업 확인','check-import','','ol-primary')}</div></div><div data-importstatus role="status"></div></section>`:''}<div class="ol-metrics"><div class="ol-metric"><span class="ol-label">현재 보유 달러</span><strong class="ol-value">${money(t.cash)}</strong><small>USD 계정 ${data.accounts.filter(a=>a.code==='USD').length}개 합산 · 매수 차감 / 입금 가산</small></div><div class="ol-metric"><span class="ol-label">평균 환전환율 · USD</span><strong class="ol-value">${t.average===null?'—':num(t.average)}<span class="ol-unit">원 / $1</span></strong><small>환전 원화 ÷ 환전 달러 · 수수료 포함</small></div><div class="ol-metric"><span class="ol-label">매수원금 · USD</span><strong class="ol-value">${money(t.principal)}</strong><small class="ol-invested-krw">투자 원화 <b>${investedKRW(data)===null?'환전 내역 입력 필요':num(investedKRW(data),0)+'원'}</b></small><small>평균 환전환율 × 달러 매수원금</small></div></div>${neg.length?`<div class="ol-alert" role="status">${neg.map(a=>esc(a.label)).join(', ')} 잔액이 음수입니다. 누락된 환전·입금 기록을 확인해 주세요.</div>`:''}<nav class="ol-tabs" role="tablist" aria-label="투자 기록 탭">${button('<small>MAIN</small> 주식 · 배당금','tab','main','',`role="tab" id="ol-tab-main" aria-controls="ol-panel-main" aria-selected="${tab==='main'}"`)}${button('<small>SUB</small> 환전 관리','tab','sub','',`role="tab" id="ol-tab-sub" aria-controls="ol-panel-sub" aria-selected="${tab==='sub'}"`)}</nav><main><div role="tabpanel" id="ol-panel-main" aria-labelledby="ol-tab-main" ${tab==='main'?'':'hidden'}>${tab==='main'?renderStocks()+renderIncome():''}</div><div role="tabpanel" id="ol-panel-sub" aria-labelledby="ol-tab-sub" ${tab==='sub'?'':'hidden'}>${tab==='sub'?renderAccounts():''}</div></main><details class="ol-details"><summary class="cursor-interaction">계산 기준</summary><p>남은 외화 = 환전한 외화 − 해당 계정의 매수금액 + 배당금·이자 실수령액. 평균 환전환율은 환전 원화 합계 ÷ 환전 외화 합계이며, 매수해도 변하지 않습니다. 엔화 100단위 계정은 100을 곱해 표시합니다.</p><p>주수·원금은 입력한 매수 기록 기준입니다. 매도·인출·역환전·주식분할은 이 버전의 계산 범위에 포함하지 않습니다. 통화가 다른 금액은 합산하지 않습니다.</p></details><footer class="ol-footer"><small>기기 보관 · GitHub 연결 시 다른 PC에서도 불러오기</small><small data-git-status>${saveStatus()}</small></footer></div>`;
+ root.innerHTML=`<header class="ol-top"><div class="ol-brand"><div class="ol-mark" aria-hidden="true">N</div><div><h1>해외자산 노트</h1><small>나의 매수 · 배당금 · 환전 기록</small></div></div><div class="ol-actions"><span class="ol-save" data-git-status>${saveStatus()}</span>${button('GitHub 연결','github-toggle','','ol-quiet')}${button('데이터 백업','backup','','ol-quiet')}</div></header><div class="ol-page"><div class="ol-alert ol-git-alert" data-git-alert hidden role="status"></div>${syncOpen?githubPanel():''}${toast?`<div class="ol-toast" role="status"><span>${esc(toast)}</span><div class="ol-actions">${undo?button('되돌리기','undo','','ol-rowaction'):''}${button('닫기','dismiss','','ol-rowaction')}</div></div>`:''}${backup?`<section class="ol-backup"><div class="ol-sectionhead"><h3>기록 백업 · 불러오기</h3>${button('닫기','backup','','ol-quiet')}</div><label>백업 데이터 <textarea data-backup spellcheck="false" aria-label="백업 데이터">${esc(JSON.stringify(data,null,2))}</textarea></label><div class="ol-formfoot"><small>전체 선택 후 복사해 보관하거나, 다른 PC에서 백업을 붙여넣으세요.</small><div class="ol-actions">${button('백업 파일 저장','download-backup')}${recovery?button('교체 전 기록 받기','download-recovery'):''}${rawRecovery?button('교체 전 GitHub 원본 받기','download-raw-recovery'):''}${button('전체 선택','select-backup')}${button('백업 확인','check-import','','ol-primary')}</div></div><div data-importstatus role="status"></div></section>`:''}<div class="ol-metrics"><div class="ol-metric"><span class="ol-label">현재 보유 달러</span><strong class="ol-value">${money(t.cash)}</strong><small>USD 계정 ${data.accounts.filter(a=>a.code==='USD').length}개 합산 · 매수·원화 환전 차감 / 매도·입금 가산</small></div><div class="ol-metric"><span class="ol-label">평균 환전환율 · USD</span><strong class="ol-value">${t.average===null?'—':num(t.average)}<span class="ol-unit">원 / $1</span></strong><small>순투입 환전 원화 ÷ 순환전 달러</small></div><div class="ol-metric"><span class="ol-label">보유 매수원금 · USD</span><strong class="ol-value">${money(t.principal)}</strong><small class="ol-invested-krw">투자 원화 <b>${investedKRW(data)===null?'환전 내역 입력 필요':num(investedKRW(data),0)+'원'}</b></small><small>평균 환전환율 × 보유 달러 매수원금</small></div></div>${neg.length?`<div class="ol-alert" role="status">${neg.map(a=>esc(a.label)).join(', ')} 잔액이 음수입니다. 누락된 환전·입금 기록을 확인해 주세요.</div>`:''}<nav class="ol-tabs" role="tablist" aria-label="투자 기록 탭">${button('<small>MAIN</small> 주식 · 배당금','tab','main','',`role="tab" id="ol-tab-main" aria-controls="ol-panel-main" aria-selected="${tab==='main'}"`)}${button('<small>SUB</small> 환전 관리','tab','sub','',`role="tab" id="ol-tab-sub" aria-controls="ol-panel-sub" aria-selected="${tab==='sub'}"`)}</nav><main><div role="tabpanel" id="ol-panel-main" aria-labelledby="ol-tab-main" ${tab==='main'?'':'hidden'}>${tab==='main'?renderStocks()+renderIncome():''}</div><div role="tabpanel" id="ol-panel-sub" aria-labelledby="ol-tab-sub" ${tab==='sub'?'':'hidden'}>${tab==='sub'?renderAccounts():''}</div></main><details class="ol-details"><summary class="cursor-interaction">계산 기준</summary><p>남은 외화 = 원화로 매수한 외화 − 원화로 환전한 외화 − 주식 매수 결제액 + 주식 매도 실수령액 + 배당금·이자 실수령액. 수수료는 실제 낸 금액·받은 금액에 포함하므로 다시 더하거나 빼지 않습니다.</p><p>평균 환전환율 = (환전에 낸 원화 − 환전으로 받은 원화) ÷ (환전으로 받은 외화 − 원화로 환전한 외화). 순환전 외화가 0 이하이면 평균을 표시하지 않습니다. 주식 매수·매도와 배당금은 환율 계산에서 제외합니다. 엔화 100단위 계정은 100을 곱합니다.</p><p>보유 매수원금은 거래일 순서의 이동평균법으로 계산합니다. 매도 시 직전 평균 매수가 × 매도주수를 원금에서 차감합니다. 같은 날 거래는 입력 순서로 계산합니다. 원화 표시는 보유 달러 매수원금 × 평균 환전환율입니다. 매도·원화 환전은 지원하며, 계좌 인출·주식분할은 별도 지원하지 않습니다.</p></details><footer class="ol-footer"><small>기기 보관 · GitHub 연결 시 다른 PC에서도 불러오기</small><small data-git-status>${saveStatus()}</small></footer></div>`;
  const tokenInput=root.querySelector('[name="gitToken"]');if(tokenInput)tokenInput.value=syncTokenDraft;paintSync();
 }
 // GitHub UI and local recovery. Credentials are never part of ledger data.
 function saveStatus(){
  const phase=gitSync?.phase||'disconnected';
- return({disconnected:storage?'기기 저장 · GitHub 미연결':'저장 제한 · 백업 필요',loading:'GitHub 확인 중',new:'GitHub 첫 저장 대기',synced:'GitHub 저장 완료',pending:'GitHub 저장 대기',saving:'GitHub 저장 중',conflict:'기록 충돌 · 확인 필요',waiting:'GitHub 새 기록 대기',error:'GitHub 저장 미완료'})[phase];
+ return({disconnected:storage?'기기 저장 · GitHub 미연결':'저장 제한 · 백업 필요',loading:'GitHub 확인 중',new:'GitHub 첫 저장 대기',synced:'GitHub 저장 완료',pending:'GitHub 저장 대기',saving:'GitHub 저장 중',conflict:'기록 충돌 · 확인 필요',waiting:'GitHub 새 기록 대기',error:'GitHub 저장 미완료',invalid:'GitHub 파일 복구 필요'})[phase];
 }
 function ledgerSummary(value){const t=totals(value);return `종목 ${value.stocks.length}개 · 기록 ${value.trades.length+value.exchanges.length+value.incomes.length}건 · 달러 매수원금 ${money(t.principal)}`;}
 function syncDetails(){
  if(!gitSync)return '';
  const s=gitSync,disabled=s.busy?'disabled':'',phase=s.phase;
  let content=`<div class="ol-git-state" role="status"><strong>${esc(saveStatus())}</strong>${s.message?`<p>${esc(s.message)}</p>`:''}${s.savedAt?`<small>최근 GitHub 저장: ${esc(new Date(s.savedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}))}</small>`:''}</div>`;
- if(s.client?.dataPath===GITHUB_FALLBACK_PATH)content+=`<p>저장 파일: <code>${GITHUB_FALLBACK_PATH}</code>. 기존 <code>data</code> 파일과 경로가 겹치지 않도록 저장소 최상위의 기록 파일을 사용합니다.</p>`;
+ if(s.client?.dataPath===GITHUB_FALLBACK_PATH)content+=`<p>저장 파일: <code>${GITHUB_FALLBACK_PATH}</code>. 저장소 최상위의 기록 파일을 사용합니다.</p>`;
  if(phase==='new')content+=`<p>저장소에 아직 기록 파일이 없습니다. 현재 기록을 처음 저장하면 이후 변경은 자동 저장됩니다.</p><div class="ol-git-summary">${esc(ledgerSummary(data))}</div>${button('현재 기록 GitHub에 처음 저장','git-initial','','ol-primary',disabled)}`;
+ if(phase==='invalid'){
+  content+=`<p>${esc(s.remote.reason)} 현재 기기: ${esc(ledgerSummary(data))}</p><div class="ol-actions">${button('기존 GitHub 파일 백업','download-raw','','',disabled)}${button('현재 기록으로 복구','git-select','repair','ol-primary',disabled)}</div>`;
+  if(syncConfirm==='repair')content+=`<div class="ol-alert" style="margin-top:12px">기존 파일을 내려받고 현재 기기 기록으로 교체합니다. ${data.stocks.length===0&&data.trades.length===0&&data.exchanges.length===0&&data.incomes.length===0?'현재 기기에는 거래 기록이 없어 빈 장부가 저장됩니다.':'저장할 기록을 위 요약에서 확인해 주세요.'}<div class="ol-actions">${button('원본 백업 후 복구 확인','git-confirm','repair','ol-primary',disabled)}${button('취소','git-cancel-choice','','',disabled)}</div></div>`;
+ }
  if(phase==='conflict'||phase==='waiting'){
   content+=`<div class="ol-git-compare"><div><strong>이 기기 기록</strong><p>${esc(ledgerSummary(data))}</p>${button('이 기기 백업 받기','download-backup','','ol-rowaction')}</div><div><strong>GitHub 기록</strong><p>${s.remote?esc(ledgerSummary(s.remote.data)):'기록 파일 없음'}</p>${s.remote?button('GitHub 백업 받기','download-remote','','ol-rowaction'):''}</div></div>`;
   if(syncConfirm){content+=`<div class="ol-alert">${syncConfirm==='local'?'이 기기 기록으로 GitHub 기록을 교체할까요?':'GitHub 기록으로 이 기기 기록을 교체할까요?'} 교체 전 기록은 복구용으로 보관합니다.<div class="ol-actions">${button('교체 확인','git-confirm',syncConfirm,'ol-primary',disabled)}${button('취소','git-cancel-choice','','',disabled)}</div></div>`;}
@@ -454,7 +479,7 @@ function paintSync(){
  const detail=root.querySelector('[data-git-details]');if(detail)detail.innerHTML=syncDetails();
  root.querySelectorAll('[data-action="git-connect"],[data-action="git-disconnect"]').forEach(b=>b.disabled=!!gitSync?.busy);
  root.querySelectorAll('[data-action="git-refresh"]').forEach(b=>b.disabled=!gitSync?.client||gitSync.busy);
- const alert=root.querySelector('[data-git-alert]');if(alert){const show=gitSync&&['error','conflict','waiting','new'].includes(gitSync.phase);alert.hidden=!show;if(show)alert.innerHTML=`<span>${esc(gitSync.message||'GitHub 연결을 확인했습니다. 최초 저장을 완료해 주세요.')}</span>${button('확인','github-open','','ol-rowaction')}`;else alert.textContent='';}
+ const alert=root.querySelector('[data-git-alert]');if(alert){const show=gitSync&&['error','conflict','waiting','new','invalid'].includes(gitSync.phase);alert.hidden=!show;if(show)alert.innerHTML=`<span>${esc(gitSync.message||'GitHub 연결을 확인했습니다. 최초 저장을 완료해 주세요.')}</span>${button('확인','github-open','','ol-rowaction')}`;else alert.textContent='';}
 }
 function rememberRecovery(value,label){
  if(emptyLedger(value))return;recovery={savedAt:new Date().toISOString(),label,data:validate(value)};
@@ -463,6 +488,11 @@ function rememberRecovery(value,label){
 function downloadLedger(value,tag='backup'){
  const file=new Blob([JSON.stringify(validate(value),null,2)],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(file),a=document.createElement('a');
  a.href=url;a.download=`overseas-ledger-${tag}-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function rememberRawRecovery(value){rawRecovery={rawBase64:value.rawBase64,path:value.path,sha:value.sha,savedAt:new Date().toISOString()};try{localStorage.setItem(RAW_RECOVERY_KEY,JSON.stringify(rawRecovery));}catch{storage=false;}}
+function downloadRawFile(value){
+ const raw=atob(value.rawBase64.replace(/\s/g,'')),bytes=Uint8Array.from(raw,c=>c.charCodeAt(0)),url=URL.createObjectURL(new Blob([bytes],{type:'application/octet-stream'})),a=document.createElement('a');
+ a.href=url;a.download=`github-original-${today()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function readCachedBase(target){try{const c=JSON.parse(localStorage.getItem(BASE_KEY)||'null');return c?.target===target?c:null;}catch{return null;}}
 function connectFromForm(){
@@ -474,7 +504,7 @@ function connectFromForm(){
 function initializeGitSync(){
  gitSync=new GitLedgerSync({getData:()=>data,canApply:()=>!editor&&!backup,
   applyData:value=>{rememberRecovery(data,'이 기기 교체 전');data=validate(value);undo=null;expanded=new Set();incomeExpanded=new Set();persist(false);toast='GitHub의 최신 기록을 불러왔습니다.';render();},
-  recover:rememberRecovery,loadBase:readCachedBase,
+  recover:rememberRecovery,recoverRaw:rememberRawRecovery,loadBase:readCachedBase,
   saveBase:value=>{try{localStorage.setItem(BASE_KEY,JSON.stringify(value));}catch{storage=false;}},
   connected:(config,token)=>{syncDraft=config;try{localStorage.setItem(CONFIG_KEY,JSON.stringify(config));}catch{}try{sessionStorage.setItem(SESSION_KEY,JSON.stringify({target:gitTarget(config),token}));}catch{}},
   changed:paintSync
@@ -487,12 +517,13 @@ function initializeGitSync(){
 }
 
 function commit(next,message){next=validate(next);undo={data:JSON.parse(JSON.stringify(data))};data=next;editor=null;deleteConfirm='';toast=message;persist();render();}
-function openEditor(kind,id='',parent=''){editor={kind,id,parent};deleteConfirm='';if(parent&&['trade','exchange'].includes(kind))expanded.add(parent);render();const input=root.querySelector('form input:not([disabled])');if(input)input.focus();}
+function openEditor(kind,id='',parent='',side='buy'){editor={kind,id,parent,side};deleteConfirm='';if(parent&&['trade','exchange'].includes(kind))expanded.add(parent);render();const input=root.querySelector('.ol-form input:not([disabled])');if(input)input.focus();}
 function deleteRecord(kind,id){
- const collections={group:'groups',stock:'stocks',account:'accounts',trade:'trades',exchange:'exchanges',income:'incomes'};
- if(kind==='stock'&&(data.trades.some(x=>x.stockId===id)||data.incomes.some(x=>x.stockId===id))){toast='매수·입금 기록이 연결된 종목입니다. 연결된 기록을 먼저 정리해 주세요.';deleteConfirm='';render();return;}
+ const collections={group:'groups',stock:'stocks',account:'accounts',trade:'trades',exchange:'exchanges',income:'incomes',incomeitem:'incomeItems'};
+ if(kind==='stock'&&(data.trades.some(x=>x.stockId===id)||data.incomes.some(x=>x.stockId===id))){toast='매수·매도·입금 기록이 연결된 종목입니다. 연결된 기록을 먼저 정리해 주세요.';deleteConfirm='';render();return;}
  if(kind==='account'&&(data.trades.some(x=>x.accountId===id)||data.exchanges.some(x=>x.accountId===id)||data.incomes.some(x=>x.accountId===id))){toast='기록이 연결된 통화 계정입니다. 연결된 기록을 먼저 정리해 주세요.';deleteConfirm='';render();return;}
- const next=JSON.parse(JSON.stringify(data));if(kind==='group')next.stocks.forEach(s=>{if(s.groupId===id)s.groupId='';});next[collections[kind]]=next[collections[kind]].filter(x=>x.id!==id);commit(next,kind==='group'?'그룹을 삭제하고 종목을 미분류로 옮겼습니다. 매수·입금 기록은 유지됩니다.':'기록을 삭제했습니다. 되돌릴 수 있어요.');
+ if(kind==='incomeitem'&&data.incomes.some(x=>x.itemId===id)){toast='수령 기록이 있는 항목입니다. 숨기기를 사용하면 기록과 합계를 보존하면서 목록에서 제외할 수 있습니다.';deleteConfirm='';render();return;}
+ try{const next=JSON.parse(JSON.stringify(data));if(kind==='group')next.stocks.forEach(s=>{if(s.groupId===id)s.groupId='';});if(kind==='stock')next.incomeItems.forEach(i=>{if(i.stockId===id)i.stockId='';});next[collections[kind]]=next[collections[kind]].filter(x=>x.id!==id);commit(next,kind==='group'?'그룹을 삭제하고 종목을 미분류로 옮겼습니다.':'기록을 삭제했습니다. 되돌릴 수 있어요.');}catch(e){toast=e.message;deleteConfirm='';render();}
 }
 root.addEventListener('click',event=>{
  const target=event.target.closest('button[data-action]');if(!target||!root.contains(target))return;const action=target.dataset.action,id=target.dataset.id;
@@ -504,15 +535,15 @@ root.addEventListener('click',event=>{
  else if(action==='git-initial'){syncConfirm='';gitSync.choose('local');}
  else if(action==='git-select'){syncConfirm=id;paintSync();}
  else if(action==='git-cancel-choice'){syncConfirm='';paintSync();}
- else if(action==='git-confirm'){syncConfirm='';gitSync.choose(id);}
+ else if(action==='git-confirm'){syncConfirm='';if(id==='repair'){if(gitSync.remote?.invalid){downloadRawFile(gitSync.remote);gitSync.choose('local');}}else gitSync.choose(id);}
  else if(action==='download-backup')downloadLedger(data);
- else if(action==='download-remote'&&gitSync.remote)downloadLedger(gitSync.remote.data,'github');
+ else if(action==='download-remote'&&gitSync.remote&&!gitSync.remote.invalid)downloadLedger(gitSync.remote.data,'github');
+ else if(action==='download-raw'&&gitSync.remote?.invalid)downloadRawFile(gitSync.remote);
+ else if(action==='download-raw-recovery'&&rawRecovery)downloadRawFile(rawRecovery);
  else if(action==='download-recovery'&&recovery)downloadLedger(recovery.data,'recovery');
  else if(action==='reorder'){
-  if(editor||target.disabled)return;const kind=target.dataset.moveKind,step=Number(target.dataset.step),next=moveLedgerItem(data,kind,id,step);if(!next)return;
-  commit(next,'항목 순서를 저장했습니다.');
-  const controls=[...root.querySelectorAll('[data-action="reorder"]')].filter(b=>b.dataset.moveKind===kind&&b.dataset.id===id);
-  const focus=controls.find(b=>b.dataset.step===String(step)&&!b.disabled)||controls.find(b=>!b.disabled);if(focus){focus.focus({preventScroll:true});focus.scrollIntoView({block:'nearest'});}
+  if(editor||target.disabled)return;const kind=target.dataset.moveKind,step=Number(target.dataset.step),next=moveLedgerItem(data,kind,id,step);if(!next)return;commit(next,'항목 순서를 저장했습니다.');
+  const controls=[...root.querySelectorAll('[data-action="reorder"]')].filter(b=>b.dataset.moveKind===kind&&b.dataset.id===id),focus=controls.find(b=>b.dataset.step===String(step)&&!b.disabled)||controls.find(b=>!b.disabled);if(focus){focus.focus({preventScroll:true});focus.scrollIntoView({block:'nearest'});}
  }
  else if(action==='save-form'){const f=target.closest('form');if(f.reportValidity())saveForm(f);}
  else if(action==='tab'){tab=id;editor=null;deleteConfirm='';render();root.querySelector('#ol-tab-'+id).focus({preventScroll:true});}
@@ -520,10 +551,18 @@ root.addEventListener('click',event=>{
  else if(action==='new-group')openEditor('group');
  else if(action==='new-stock')openEditor('stock','',id);
  else if(action==='new-account')openEditor('account');
- else if(action==='new-trade')openEditor('trade','',id);
- else if(action==='new-exchange')openEditor('exchange','',id);
+ else if(action==='new-trade')openEditor('trade','',id,'buy');
+ else if(action==='new-sell')openEditor('trade','',id,'sell');
+ else if(action==='new-exchange')openEditor('exchange','',id,'buy');
+ else if(action==='new-fx-sell')openEditor('exchange','',id,'sell');
  else if(action==='new-income')openEditor('income','',id);
- else if(action==='toggle-income'){incomeExpanded.has(id)?incomeExpanded.delete(id):incomeExpanded.add(id);render();root.querySelector('[data-action="toggle-income"][data-id="'+id+'"]').focus();}
+ else if(action==='new-incomeitem')openEditor('incomeitem');
+ else if(action==='income-from-stocks'){
+  const next=JSON.parse(JSON.stringify(data)),missing=next.stocks.filter(s=>!next.incomeItems.some(i=>i.stockId===s.id));missing.forEach(s=>next.incomeItems.push({id:uid(),label:s.ticker,kind:'dividend',code:s.code,stockId:s.id,hidden:false}));
+  if(missing.length)commit(next,missing.length+'개 배당금 항목을 추가했습니다.');else{toast='보유 종목의 항목이 이미 있습니다. 숨긴 항목은 아래에서 다시 표시할 수 있습니다.';render();}
+ }
+ else if(action==='hide-incomeitem'||action==='show-incomeitem'){const next=JSON.parse(JSON.stringify(data));next.incomeItems.find(i=>i.id===id).hidden=action==='hide-incomeitem';commit(next,action==='hide-incomeitem'?'항목을 숨겼습니다. 수령 기록과 합계는 유지됩니다.':'항목을 다시 표시했습니다.');}
+ else if(action==='toggle-income'){incomeExpanded.has(id)?incomeExpanded.delete(id):incomeExpanded.add(id);render();root.querySelector('[data-action="toggle-income"][data-id="'+id+'"]').focus({preventScroll:true});}
  else if(action==='cancel'){editor=null;render();}
  else if(action==='edit'){const [kind,key]=id.split(':');const parent=kind==='trade'?data.trades.find(x=>x.id===key).stockId:kind==='exchange'?data.exchanges.find(x=>x.id===key).accountId:'';openEditor(kind,key,parent);}
  else if(action==='ask-delete'){deleteConfirm=id;render();}
@@ -534,7 +573,7 @@ root.addEventListener('click',event=>{
  else if(action==='backup'){backup=!backup;importReady=null;render();}
  else if(action==='select-backup'){const area=root.querySelector('[data-backup]');area.focus();area.select();}
  else if(action==='check-import'){
-  const status=root.querySelector('[data-importstatus]');try{const raw=root.querySelector('[data-backup]').value;if(raw.length>3000000)throw Error('백업이 너무 큽니다.');importReady=validate(JSON.parse(raw));status.innerHTML=`<div class="ol-alert" style="margin-top:12px">통화 ${importReady.accounts.length}개 · 종목 ${importReady.stocks.length}개 · 거래 ${importReady.trades.length+importReady.exchanges.length+importReady.incomes.length}건. 현재 내 기록을 이 백업으로 바꿀까요? ${button('내 기록으로 불러오기','apply-import','','ol-primary')}</div>`;}catch(e){importReady=null;status.innerHTML='<div class="ol-error">'+esc(e.message)+'</div>';}
+  const status=root.querySelector('[data-importstatus]');try{const raw=root.querySelector('[data-backup]').value;if(raw.length>3000000)throw Error('백업이 너무 큽니다.');const parsed=JSON.parse(raw);importReady=validate(parsed.format==='overseas-ledger'?parsed.data:parsed);status.innerHTML=`<div class="ol-alert" style="margin-top:12px">통화 ${importReady.accounts.length}개 · 종목 ${importReady.stocks.length}개 · 거래 ${importReady.trades.length+importReady.exchanges.length+importReady.incomes.length}건. 현재 내 기록을 이 백업으로 바꿀까요? ${button('내 기록으로 불러오기','apply-import','','ol-primary')}</div>`;}catch(e){importReady=null;status.innerHTML='<div class="ol-error">'+esc(e.message)+'</div>';}
  }
  else if(action==='apply-import'&&importReady){rememberRecovery(data,'백업 불러오기 전');undo={data:JSON.parse(JSON.stringify(data))};data=importReady;importReady=null;toast='백업을 내 기록으로 불러왔습니다.';backup=false;editor=null;expanded=new Set();incomeYear='';incomeMonth='';incomeExpanded=new Set();persist();render();}
 });
@@ -548,37 +587,40 @@ root.addEventListener('input',e=>{
  if(e.target.matches('[data-backup]')){importReady=null;root.querySelector('[data-importstatus]').textContent='';return;}
  const f=e.target.closest('form');if(!f)return;const el=f.elements,kind=f.dataset.kind;f.querySelector('.ol-error').textContent='';
  if(kind==='trade'){
-  if(e.target.name==='amount')f.dataset.manualAmount='1';
-  if(['qty','price'].includes(e.target.name)&&!f.dataset.manualAmount&&!f.dataset.id&&el.qty.value&&el.price.value)el.amount.value=round(Number(el.qty.value)*Number(el.price.value));
-  if(e.target.name==='accountId'){const a=account(el.accountId.value),avg=accountTotals(data,a.id).average;el.rate.value=avg?round(avg,4):'';el.rate.parentElement.firstChild.textContent=`매수당시 환율 (원 / ${a.unit} ${a.code})`;}
-  const a=account(el.accountId.value),existing=data.trades.find(x=>x.id===f.dataset.id);const after=accountTotals(data,a.id).balance+(existing&&existing.accountId===a.id?existing.amount:0)-Number(el.amount.value||0);
-  f.querySelector('[data-livehint]').textContent=`저장 후 ${a.label} 잔액 ${money(after,a.code)}${after<0?' · 환전 내역이 빠졌는지 확인해 주세요.':' · 실제 결제금액을 기준으로 차감합니다.'}`;
+  const sell=el.side.value==='sell',a=account(el.accountId.value);el.amount.parentElement.firstChild.textContent=`${sell?'매도금액 · 실수령':'매수금액 · 실결제'} (${a.code})`;el.qty.parentElement.firstChild.textContent=sell?'매도주수':'매수주수';
+  if(e.target.name==='amount')f.dataset.manualAmount='1';if(['qty','price'].includes(e.target.name)&&!f.dataset.manualAmount&&!f.dataset.id&&el.qty.value&&el.price.value)el.amount.value=round(Number(el.qty.value)*Number(el.price.value));
+  if(e.target.name==='accountId'){const avg=accountTotals(data,a.id).average;el.rate.value=avg>0?round(avg,4):'';el.rate.parentElement.firstChild.textContent=`거래 당시 환율 (원 / ${a.unit} ${a.code})`;}
+  const existing=data.trades.find(x=>x.id===f.dataset.id),previous=existing&&existing.accountId===a.id?(existing.side==='sell'?existing.amount:-existing.amount):0,after=accountTotals(data,a.id).balance-previous+(sell?1:-1)*Number(el.amount.value||0);
+  f.querySelector('[data-livehint]').textContent=`저장 후 ${a.label} 잔액 ${money(after,a.code)} · ${sell?'세금·수수료를 뺀 실제 입금액을 입력하세요.':'수수료를 포함한 실제 결제액을 입력하세요.'}${after<0?' 누락된 기록을 확인해 주세요.':''}`;
  }
  if(kind==='exchange'){
-  if(e.target.name==='rate')f.dataset.manualRate='1';
-  if(['krw','amount','fee'].includes(e.target.name)&&!f.dataset.manualRate&&!f.dataset.id&&Number(el.amount.value)>0){const a=account(f.dataset.parent);el.rate.value=round((Number(el.krw.value)-Number(el.fee.value||0))/Number(el.amount.value)*a.unit,6);}
+  const a=account(f.dataset.parent),sell=el.direction.value==='sell';el.krw.parentElement.firstChild.textContent=sell?'받은 원화 · 수수료 차감 후 (원)':'낸 원화 · 수수료 포함 (원)';el.amount.parentElement.firstChild.textContent=`${sell?'사용한':'받은'} 외화 (${a.code})`;
+  if(e.target.name==='rate')f.dataset.manualRate='1';if(['direction','krw','amount','fee'].includes(e.target.name)&&!f.dataset.manualRate&&!f.dataset.id&&Number(el.amount.value)>0)el.rate.value=round((Number(el.krw.value)+(sell?1:-1)*Number(el.fee.value||0))/Number(el.amount.value)*a.unit,6);
  }
  if(kind==='account'&&e.target.name==='code')el.unit.value=el.code.value.toUpperCase()==='JPY'?'100':'1';
+ if(kind==='incomeitem'&&e.target.name==='stockId'&&el.stockId.value){const s=stock(el.stockId.value);el.code.value=s.code;if(!el.label.value)el.label.value=s.ticker;}
  if(kind==='income'){
-  const a=account(el.accountId.value);if(['accountId','kind'].includes(e.target.name)){const selected=el.stockId.value;el.stockId.innerHTML=incomeStockOptions(a.code,selected,el.kind.value);el.stockId.required=el.kind.value==='dividend';el.gross.parentElement.firstChild.textContent=`지급액 · 차감 전 (${a.code})`;el.tax.parentElement.firstChild.textContent=`세금·차감액 (${a.code})`;}
-  el.net.value=money(round(Number(el.gross.value||0)-Number(el.tax.value||0)),a.code);
+  const item=data.incomeItems.find(i=>i.id===el.itemId.value);if(e.target.name==='itemId'){el.accountId.innerHTML=options(data.accounts.filter(a=>a.code===item.code),el.accountId.value,a=>a.label+' · '+a.code);el.kind.value=item.kind;}
+  el.gross.parentElement.firstChild.textContent=`지급액 · 차감 전 (${item.code})`;el.tax.parentElement.firstChild.textContent=`세금·차감액 (${item.code})`;el.net.value=money(round(Number(el.gross.value||0)-Number(el.tax.value||0)),item.code);
  }
 });
 function saveForm(f){
- const el=f.elements,kind=f.dataset.kind,id=f.dataset.id||uid(),parent=f.dataset.parent;const v=name=>el[name]?.value.trim()||'',n=name=>Number(v(name));const next=JSON.parse(JSON.stringify(data));let record,collection;
+ const el=f.elements,kind=f.dataset.kind,id=f.dataset.id||uid(),parent=f.dataset.parent,v=name=>el[name]?.value.trim()||'',n=name=>Number(v(name)),next=JSON.parse(JSON.stringify(data));let record,collection;
  try{
   if(kind==='group'){record={id,label:v('label')};collection='groups';if(record.label==='미분류'||data.groups.some(g=>g.id!==id&&g.label.toLowerCase()===record.label.toLowerCase()))throw Error('그룹 이름이 이미 있습니다. 다른 이름을 입력해 주세요.');}
-  if(kind==='stock'){record={id,ticker:v('ticker').toUpperCase(),name:v('name'),code:v('code').toUpperCase(),groupId:v('groupId')};collection='stocks';if(data.stocks.some(s=>s.id!==id&&s.ticker===record.ticker&&s.code===record.code))throw Error('같은 종목이 이미 있습니다. 기존 종목에 매수 기록을 추가해 주세요.');}
+  if(kind==='stock'){record={id,ticker:v('ticker').toUpperCase(),name:v('name'),code:v('code').toUpperCase(),groupId:v('groupId')};collection='stocks';if(data.stocks.some(s=>s.id!==id&&s.ticker===record.ticker&&s.code===record.code))throw Error('같은 종목이 이미 있습니다. 기존 종목에 거래 기록을 추가해 주세요.');next.incomeItems.forEach(i=>{if(i.stockId===id)i.code=record.code;});if(!f.dataset.id&&v('createIncome')==='yes')next.incomeItems.push({id:uid(),label:record.ticker,kind:'dividend',code:record.code,stockId:id,hidden:false});}
   if(kind==='account'){record={id,label:v('label'),code:v('code').toUpperCase(),unit:n('unit')};collection='accounts';if(data.accounts.some(a=>a.id!==id&&a.label===record.label))throw Error('계정 이름이 이미 있습니다. 달러1·달러2처럼 구분해 주세요.');}
-  if(kind==='trade'){record={id,stockId:parent,accountId:v('accountId'),date:v('date'),amount:n('amount'),qty:n('qty'),price:n('price'),rate:n('rate')};collection='trades';}
-  if(kind==='exchange'){record={id,accountId:parent,date:v('date'),krw:n('krw'),amount:n('amount'),rate:n('rate'),fee:n('fee')};collection='exchanges';}
-  if(kind==='income'){record={id,kind:v('kind'),stockId:v('stockId'),accountId:v('accountId'),date:v('date'),gross:n('gross'),tax:n('tax'),memo:v('memo')};collection='incomes';if(record.tax>record.gross)throw Error('차감액은 지급액을 초과할 수 없습니다.');}
+  if(kind==='trade'){record={id,stockId:parent,side:v('side'),accountId:v('accountId'),date:v('date'),amount:n('amount'),qty:n('qty'),price:n('price'),rate:n('rate')};collection='trades';}
+  if(kind==='exchange'){record={id,accountId:parent,direction:v('direction'),date:v('date'),krw:n('krw'),amount:n('amount'),rate:n('rate'),fee:n('fee')};collection='exchanges';}
+  if(kind==='incomeitem'){record={id,label:v('label'),kind:v('kind'),code:v('code').toUpperCase(),stockId:v('stockId'),hidden:data.incomeItems.find(i=>i.id===id)?.hidden||false};collection='incomeItems';}
+  if(kind==='income'){record={id,kind:v('kind'),itemId:v('itemId'),stockId:next.incomeItems.find(i=>i.id===v('itemId'))?.stockId||'',accountId:v('accountId'),date:v('date'),gross:n('gross'),tax:n('tax'),memo:v('memo')};collection='incomes';if(record.tax>record.gross)throw Error('차감액은 지급액을 초과할 수 없습니다.');}
   if(!record)return;const idx=next[collection].findIndex(x=>x.id===id);if(idx>=0)next[collection][idx]=record;else next[collection].push(record);
-  if(kind==='stock'||kind==='account')expanded.add(id);if(kind==='income')incomeExpanded.add(record.stockId?'stock:'+record.stockId:'account:'+record.accountId);const outside=kind==='income'&&!periodIncomes({incomes:[record]},incomeYear,incomeMonth).length;commit(next,outside?'기록을 저장했습니다. 현재 선택한 수령 기간 밖의 내역입니다.':'기록을 저장했습니다.');
+  if(kind==='stock'||kind==='account')expanded.add(id);if(kind==='income')incomeExpanded.add(record.itemId);if(kind==='incomeitem')incomeExpanded.add(id);const outside=kind==='income'&&!periodIncomes({incomes:[record]},incomeYear,incomeMonth).length;commit(next,outside?'기록을 저장했습니다. 현재 선택한 수령 기간 밖의 내역입니다.':'기록을 저장했습니다.');
  }catch(err){f.querySelector('.ol-error').textContent=err.message;}
 }
 root.addEventListener('submit',e=>{e.preventDefault();if(e.target.matches('[data-github-form]'))connectFromForm();else if(e.target.matches('form')&&e.target.reportValidity())saveForm(e.target);});
 initializeGitSync();
+
 })();
 </script>
 
