@@ -111,6 +111,11 @@ noscript { display: block; padding: 20px; font-family: sans-serif; }
 #overseas-ledger-v2 .ol-group-list{display:grid;grid-template-columns:minmax(0,1fr);gap:22px}
 #overseas-ledger-v2 .ol-grouphead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
 #overseas-ledger-v2 .ol-group-name{min-width:0;overflow-wrap:anywhere}
+#overseas-ledger-v2 .ol-group-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:1;min-width:200px;padding:6px 8px;margin:-6px 0 -6px -8px;border:0;border-radius:8px;background:transparent;text-align:left;color:inherit}
+#overseas-ledger-v2 .ol-group-toggle:hover{background:color-mix(in srgb,var(--group-tint) 76%,var(--group-line) 24%)}
+#overseas-ledger-v2 .ol-group-toggle .ol-group-name{display:block}
+#overseas-ledger-v2 .ol-group-title{display:block;font-size:15px;font-weight:600;margin-bottom:3px}
+#overseas-ledger-v2 .ol-group-title small{font-weight:400;margin-left:5px}
 #overseas-ledger-v2 .ol-group-name h3{font-size:15px;margin-bottom:3px}
 #overseas-ledger-v2 .ol-group-name h3 small{font-weight:400;margin-left:5px}
 #overseas-ledger-v2 .ol-group-name>small strong{color:var(--ol-text);margin-left:6px;font-weight:600;font-variant-numeric:tabular-nums}
@@ -176,9 +181,11 @@ noscript { display: block; padding: 20px; font-family: sans-serif; }
 #overseas-ledger-v2 #ol-panel-income .ol-income{margin-top:0}
 #overseas-ledger-v2 .ol-group{border:2px solid var(--group-line);border-radius:13px;padding:16px;background:var(--ol-panel);position:relative;min-width:0}
 #overseas-ledger-v2 .ol-group .ol-grouphead{padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--group-line)}
+#overseas-ledger-v2 .ol-group.ol-group-collapsed .ol-grouphead{padding-bottom:0;margin-bottom:0;border-bottom:0}
 #overseas-ledger-v2 .ol-group .ol-stack>.ol-item:nth-child(odd){background:var(--group-tint)}
 #overseas-ledger-v2 .ol-group .ol-stack>.ol-item:nth-child(even){background:var(--ol-panel)}
 #overseas-ledger-v2 .ol-group .ol-stack>.ol-item{border-color:var(--group-edge)}
+#overseas-ledger-v2 .ol-group .ol-stack[hidden]{display:none}
 #overseas-ledger-v2 .ol-group .ol-weight-track>span{background:var(--group-line)}
 #overseas-ledger-v2 .ol-group .ol-toggle:hover{background:color-mix(in srgb,var(--group-tint) 82%,var(--group-line) 18%);filter:none}
 #overseas-ledger-v2 .ol-income-item .ol-toggle:hover{background:light-dark(#e4e7eb,#35414d);filter:none}
@@ -412,7 +419,7 @@ const KEY='overseas-ledger-preview-v1';
 const CONFIG_KEY=KEY+'-github-config',BASE_KEY=KEY+'-github-base',SESSION_KEY=KEY+'-github-session',RECOVERY_KEY=KEY+'-recovery',RAW_RECOVERY_KEY=KEY+'-raw-recovery';
 let data=validate(blank()),storage=true,loadIssue='';
 try{const raw=localStorage.getItem(KEY);if(raw)data=validate(JSON.parse(raw));const probe=KEY+'-probe';localStorage.setItem(probe,'1');localStorage.removeItem(probe);}catch(e){storage=false;loadIssue='기기의 기존 기록을 읽지 못했거나 저장이 제한되어 있습니다. 데이터 백업을 확인해 주세요.';}
-let tab='main',expanded=new Set(),editor=null,deleteConfirm='',toast=loadIssue,undo=null,backup=false,importReady=null;
+let tab='main',expanded=new Set(),collapsedGroups=new Set(),editor=null,deleteConfirm='',toast=loadIssue,undo=null,backup=false,importReady=null;
 let incomeYear='',incomeMonth='',incomeExpanded=new Set();
 let gitSync=null,syncOpen=false,syncConfirm='',syncTokenDraft='',recovery=null,rawRecovery=null;
 let syncDraft={owner:location.hostname.endsWith('.github.io')?location.hostname.split('.')[0]:'',repo:'overseas-ledger-data',branch:'main'};
@@ -482,8 +489,8 @@ function renderStock(s,allocation,index,length){
 function renderStocks(){
  const groups=groupList(data);
  return `<div class="ol-sectionhead"><h2>보유 종목 <small>${data.stocks.length}개 · ${data.groups.length}개 그룹</small></h2><div class="ol-actions">${button('+ 그룹 추가','new-group')}${button('+ 종목 추가','new-stock','','ol-primary')}</div></div>${editor?.kind==='group'?groupForm(editor.id):''}${editor?.kind==='stock'?stockForm(editor.id):''}<small class="ol-drag-hint">점 손잡이를 잡아 원하는 위치로 옮기세요. 종목은 같은 그룹 안에서 이동합니다.</small><div class="ol-group-list">${groups.map((g,index)=>{
- const a=groupAllocation(data,g.id),stocks=data.stocks.filter(s=>s.groupId===g.id),total=a.mixed?num(a.total,0)+'원':money(a.total,a.code);
- return `<section class="ol-group" style="${groupTheme(g)}" data-sort-kind="group" data-sort-id="${esc(g.id)}" aria-label="${esc(g.label)} 그룹"><div class="ol-grouphead"><div class="ol-group-name"><h3>${esc(g.label)} <small>${stocks.length}종목</small></h3><small>${a.mixed?'원화 매수원금 · 매수 당시 환율 환산':'그룹 매수원금 · '+esc(a.code)} <strong>${total}</strong></small></div><div class="ol-actions">${moveControls('group',g.id,g.label+' 그룹',index,groups.length)}${g.id?editDelete('group',g.id,g.label+' 그룹'):''}${button('+ 종목','new-stock',g.id,'ol-quiet',`aria-label="${esc(g.label)} 그룹 종목 추가"`)}</div></div><div class="ol-stack">${stocks.map((s,i)=>renderStock(s,a,i,stocks.length)).join('')||'<div class="ol-empty">이 그룹에 종목을 추가하거나 기존 종목의 소속 그룹을 변경해 주세요.</div>'}</div></section>`;
+ const a=groupAllocation(data,g.id),stocks=data.stocks.filter(s=>s.groupId===g.id),total=a.mixed?num(a.total,0)+'원':money(a.total,a.code),isOpen=!collapsedGroups.has(g.id),bodyId='group-items-'+(g.id||'ungrouped');
+ return `<section class="ol-group ${isOpen?'':'ol-group-collapsed'}" style="${groupTheme(g)}" data-sort-kind="group" data-sort-id="${esc(g.id)}" aria-label="${esc(g.label)} 그룹"><div class="ol-grouphead">${button(`<span class="ol-group-name"><span class="ol-group-title">${esc(g.label)} <small>${stocks.length}종목</small></span><small>${a.mixed?'원화 매수원금 · 매수 당시 환율 환산':'그룹 매수원금 · '+esc(a.code)} <strong>${total}</strong></small></span><span class="ol-chevron" aria-hidden="true">${isOpen?'⌃':'⌄'}</span>`,'toggle-group',g.id,'ol-group-toggle',`aria-expanded="${isOpen}" aria-controls="${bodyId}" aria-label="${esc(g.label)} 그룹 ${isOpen?'접기':'펼치기'}"`)}<div class="ol-actions">${moveControls('group',g.id,g.label+' 그룹',index,groups.length)}${g.id?editDelete('group',g.id,g.label+' 그룹'):''}${button('+ 종목','new-stock',g.id,'ol-quiet',`aria-label="${esc(g.label)} 그룹 종목 추가"`)}</div></div><div class="ol-stack" id="${bodyId}" ${isOpen?'':'hidden'}>${stocks.map((s,i)=>renderStock(s,a,i,stocks.length)).join('')||'<div class="ol-empty">이 그룹에 종목을 추가하거나 기존 종목의 소속 그룹을 변경해 주세요.</div>'}</div></section>`;
  }).join('')||'<div class="ol-item ol-empty"><strong>나의 첫 그룹과 종목을 추가해 보세요.</strong>종목별 매수원금 비중이 그룹 안에서 자동 계산돼요.</div>'}</div><small class="ol-allocation-note">비중 = 종목 매수원금 ÷ 그룹 매수원금. 통화가 섞인 그룹은 매수 당시 환율로 원화 환산해 비교합니다.</small>`;
 }
 function incomePeriodLabel(){return !incomeYear?'전체 기간':incomeYear+'년'+(incomeMonth?' '+Number(incomeMonth)+'월':' 전체');}
@@ -605,6 +612,7 @@ root.addEventListener('click',event=>{
  else if(action==='save-form'){const f=target.closest('form');if(f.reportValidity())saveForm(f);}
  else if(action==='tab'){tab=id;editor=null;deleteConfirm='';render();root.querySelector('#ol-tab-'+id).focus({preventScroll:true});}
  else if(action==='toggle'){expanded.has(id)?expanded.delete(id):expanded.add(id);render();root.querySelector('[data-action="toggle"][data-id="'+id+'"]').focus({preventScroll:true});}
+ else if(action==='toggle-group'){collapsedGroups.has(id)?collapsedGroups.delete(id):collapsedGroups.add(id);render();root.querySelector('[data-action="toggle-group"][data-id="'+id+'"]').focus({preventScroll:true});}
  else if(action==='new-group')openEditor('group');
  else if(action==='new-stock')openEditor('stock','',id);
  else if(action==='new-account')openEditor('account');
