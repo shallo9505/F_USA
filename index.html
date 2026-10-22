@@ -346,6 +346,9 @@ function validate(d){
  for(const x of d.trades){const s=d.stocks.find(s=>s.id===x.stockId),a=d.accounts.find(a=>a.id===x.accountId);if(!s||!a||s.code!==a.code||!['buy','sell'].includes(x.side)||!validDate(x.date)||![x.amount,x.qty,x.price,x.rate].every(positive))throw Error('매수·매도 구분, 거래일, 금액, 수량, 통화를 확인해 주세요.');}
  for(const s of d.stocks)stockTotals(d,s.id);
  for(const x of d.incomes){x.qty=x.qty??null;x.perShare=x.perShare??null;if((x.qty!==null&&!nonneg(x.qty))||(x.perShare!==null&&!nonneg(x.perShare)))throw Error('수량과 1주당 배당금을 확인해 주세요.');const a=d.accounts.find(a=>a.id===x.accountId),item=d.incomeItems.find(i=>i.id===x.itemId);if(!a||!item||item.code!==a.code||!['dividend','interest'].includes(x.kind)||!validDate(x.date)||!positive(x.gross)||!nonneg(x.tax)||x.tax>x.gross||!text(x.memo,200))throw Error('입금일·세전금액·세금·귀속 항목·통화를 확인해 주세요.');x.stockId=item.stockId;}
+ // USD 배당금/이자는 개인 '달러' 계정으로 통일한다. 예전 백업의 달러_3000/달러_엄마 연결도 자동 보정.
+ const primaryUsd=d.accounts.find(a=>a.code==='USD'&&a.label==='달러');
+ if(primaryUsd){for(const x of d.incomes){const item=d.incomeItems.find(i=>i.id===x.itemId);if(item?.code==='USD'&&(x.kind==='dividend'||x.kind==='interest'))x.accountId=primaryUsd.id;}}
  if(d.order===undefined)d.order={};if(!d.order||typeof d.order!=='object'||Array.isArray(d.order))throw Error('정렬 정보를 확인해 주세요.');
  for(const key of ['groups','incomes'])if(d.order[key]!==undefined&&(!Array.isArray(d.order[key])||d.order[key].length>40000||d.order[key].some(id=>typeof id!=='string'||id.length>100)))throw Error('정렬 정보를 확인해 주세요.');
  d.order={groups:groupList(d).map(g=>g.id),incomes:incomeEntries(d,true).map(e=>e.key)};
