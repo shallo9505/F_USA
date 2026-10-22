@@ -76,7 +76,7 @@ function migrateDomesticIncome(){
  let foreign,home;
  try{foreign=JSON.parse(localStorage.getItem(foreignKey)||'null');home=JSON.parse(localStorage.getItem(homeKey)||'null')}catch{return false}
  if(!foreign||!Array.isArray(foreign.incomeItems)||!Array.isArray(foreign.incomes))return false;
- const normalize=s=>String(s||'').toLowerCase().replace(/[\\s_\\-·/()]/g,'');
+ const normalize=s=>String(s||'').toLowerCase().replace(/[^가-힣a-z0-9]/g,'');
  const targets=new Set(['국내배당금','토스증권이자원화']);
  const items=foreign.incomeItems.filter(i=>targets.has(normalize(i.label)));
  if(!items.length)return false;
@@ -147,18 +147,18 @@ async function autoLoadAfterLogin(login){
  try{
   const remote=await api('/api/backup');
   if(remote?.format!=='asset-note-combined'||remote.version!==1)throw Error('백업 형식이 올바르지 않습니다.');
-  const current=bundle();
+  const current=bundle();let migratedDuringRestore=false;
   if(comparable(current)!==comparable(remote)){
    // Keep a local recovery copy so a never-synced device is not silently destroyed.
    try{localStorage.setItem('asset-note-before-auto-sync',JSON.stringify(current))}catch(e){}
    cloudApplying=true;
-   try{restore(remote,{automatic:true})}finally{cloudApplying=false}
+   try{migratedDuringRestore=!!restore(remote,{automatic:true})}finally{cloudApplying=false}
    toast('GitHub의 최신 백업을 자동으로 불러왔습니다.');
   }
-  const migrated=migrateDomesticIncome();if(migrated)reloadLedgers();
+  const migrated=migratedDuringRestore||migrateDomesticIncome();if(migrated)reloadLedgers();
   lastRemoteSnapshot=comparable(remote);cloudReady=true;cloudDirty=false;
-  if(migrated)scheduleCloudSave();
   $('#status').textContent='GitHub 최신 백업 동기화 완료';
+  if(migrated)scheduleCloudSave();
   $('#authMessage').textContent='GitHub 연결됨: '+login+' · 최신 원격 백업 자동 적용 · 변경 시 자동 저장';
  }catch(e){
   if(/404|No backup found/.test(e.message)){
@@ -196,8 +196,9 @@ function restore(data,{automatic=false}={}){
  db.korea=data.korea;db.household=data.household;
  for(const [key,value] of Object.entries(data.overseasLocalStorage||{})){if([LEGACY,LEGACY+'-recovery',LEGACY+'-raw-recovery'].includes(key))localStorage.setItem(key,value)}
  for(const [key,value] of Object.entries(data.domesticLocalStorage||{})){if(['domestic-ledger-v1','domestic-ledger-v1-recovery','domestic-ledger-v1-raw-recovery'].includes(key))localStorage.setItem(key,value)}
- save();migrateDomesticIncome();reloadLedgers();
+ save();const incomeMigrated=migrateDomesticIncome();reloadLedgers();
  if(!automatic)toast('복원 완료. 해외주식·국내주식 화면도 다시 불러왔습니다.');
+ return incomeMigrated;
 }
 $('#importBtn').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{try{const f=e.target.files[0];if(f)restore(JSON.parse(await f.text()))}catch(err){toast('복원 실패: '+err.message)}finally{e.target.value=''}};
 $('#cloudBackup').onclick=async()=>{if(!confirm('현재 브라우저 데이터를 GitHub 비공개 저장소에 저장할까요?'))return;try{const snapshot=bundle(),j=await api('/api/backup',{method:'PUT',body:JSON.stringify(snapshot)});lastRemoteSnapshot=comparable(snapshot);cloudDirty=false;cloudReady=true;$('#status').textContent='GitHub 백업 완료';toast('GitHub 백업 완료 '+(j.updatedAt||''))}catch(e){toast(e.message)}};
