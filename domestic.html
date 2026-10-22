@@ -666,15 +666,15 @@ function deleteRecord(kind,id){
  try{const next=JSON.parse(JSON.stringify(data));if(kind==='group')next.stocks.forEach(s=>{if(s.groupId===id)s.groupId='';});if(kind==='stock')next.incomeItems.forEach(i=>{if(i.stockId===id)i.stockId='';});next[collections[kind]]=next[collections[kind]].filter(x=>x.id!==id);commit(next,kind==='group'?'그룹을 삭제하고 종목을 미분류로 옮겼습니다.':'기록을 삭제했습니다. 되돌릴 수 있어요.');}catch(e){toast=e.message;deleteConfirm='';render();}
 }
 function showDividendTooltip(bar){
- const tip=root.querySelector('[data-dividend-tooltip]'),template=bar.querySelector('template'),card=bar.closest('.ol-dividend-card');if(!tip||!template||!card)return;
+ const profit=bar.hasAttribute('data-profit-month'),tip=root.querySelector(profit?'[data-profit-tooltip]':'[data-dividend-tooltip]'),template=bar.querySelector('template'),card=bar.closest('.ol-dividend-card');if(!tip||!template||!card)return;
  tip.innerHTML=template.innerHTML;tip.hidden=false;tip.classList.remove('ol-tooltip-below');
  const cardRect=card.getBoundingClientRect(),barRect=bar.getBoundingClientRect(),half=tip.offsetWidth/2,pad=12;
  const center=barRect.left-cardRect.left+barRect.width/2;tip.style.left=Math.max(half+pad,Math.min(card.clientWidth-half-pad,center))+'px';
  let top=barRect.top-cardRect.top-tip.offsetHeight-11;if(top<8){top=barRect.bottom-cardRect.top+11;tip.classList.add('ol-tooltip-below');}tip.style.top=top+'px';
- bar.setAttribute('aria-describedby','ol-dividend-tooltip');
+ bar.setAttribute('aria-describedby',profit?'ol-profit-tooltip':'ol-dividend-tooltip');
 }
 function hideDividendTooltip(bar){
- const tip=root.querySelector('[data-dividend-tooltip]');if(tip){tip.hidden=true;tip.innerHTML='';}bar?.removeAttribute('aria-describedby');
+ const tip=root.querySelector(bar?.hasAttribute('data-profit-month')?'[data-profit-tooltip]':'[data-dividend-tooltip]');if(tip){tip.hidden=true;tip.innerHTML='';}bar?.removeAttribute('aria-describedby');
 }
 root.addEventListener('click',event=>{
  const target=event.target.closest('button[data-action]');if(!target||!root.contains(target))return;const action=target.dataset.action,id=target.dataset.id;
@@ -725,10 +725,10 @@ root.addEventListener('click',event=>{
  }
  else if(action==='apply-import'&&importReady){rememberRecovery(data,'백업 불러오기 전');undo={data:JSON.parse(JSON.stringify(data))};data=importReady;importReady=null;toast='백업을 내 기록으로 불러왔습니다.';backup=false;editor=null;expanded=new Set();incomeYear='';incomeMonth='';incomeExpanded=new Set();persist();render();}
 });
-root.addEventListener('mouseover',event=>{const bar=event.target.closest('[data-dividend-month]');if(bar&&!bar.contains(event.relatedTarget))showDividendTooltip(bar);});
-root.addEventListener('mouseout',event=>{const bar=event.target.closest('[data-dividend-month]');if(bar&&!bar.contains(event.relatedTarget))hideDividendTooltip(bar);});
-root.addEventListener('focusin',event=>{const bar=event.target.closest('[data-dividend-month]');if(bar)showDividendTooltip(bar);});
-root.addEventListener('focusout',event=>{const bar=event.target.closest('[data-dividend-month]');if(bar)hideDividendTooltip(bar);});
+root.addEventListener('mouseover',event=>{const bar=event.target.closest('[data-dividend-month], [data-profit-month]');if(bar&&!bar.contains(event.relatedTarget))showDividendTooltip(bar);});
+root.addEventListener('mouseout',event=>{const bar=event.target.closest('[data-dividend-month], [data-profit-month]');if(bar&&!bar.contains(event.relatedTarget))hideDividendTooltip(bar);});
+root.addEventListener('focusin',event=>{const bar=event.target.closest('[data-dividend-month], [data-profit-month]');if(bar)showDividendTooltip(bar);});
+root.addEventListener('focusout',event=>{const bar=event.target.closest('[data-dividend-month], [data-profit-month]');if(bar)hideDividendTooltip(bar);});
 root.addEventListener('change',e=>{
  if(e.target.matches('[data-move-stock]')){const id=e.target.dataset.moveStock,next=JSON.parse(JSON.stringify(data));next.stocks.find(s=>s.id===id).groupId=e.target.value;commit(next,'소속 그룹과 매수원금 비중을 갱신했습니다.');root.querySelector('[data-move-stock="'+id+'"]').focus({preventScroll:true});}
  else if(e.target.matches('[data-income-filter]')){const type=e.target.dataset.incomeFilter;if(type==='year'){incomeYear=e.target.value;if(!incomeYear)incomeMonth='';}else incomeMonth=e.target.value;editor=null;render();root.querySelector('[data-income-filter="'+type+'"]').focus();}
