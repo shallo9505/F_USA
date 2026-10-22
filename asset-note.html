@@ -130,7 +130,7 @@ function seedDomesticPurchases(){
   ['펩트론',124440,25],['현대약품',8026,50],['JW신약',2527,40],
   ['SK이터닉스',43425,5],['두산에너빌리티',68800,5],['광전자',7450,10]
  ];
- const normalize=s=>String(s||'').replace(/\\s/g,'').toUpperCase();
+ const normalize=s=>String(s||'').replace(/\s/g,'').toUpperCase();
  for(let i=0;i<purchases.length;i++){
   const [label,price,qty]=purchases[i];
   let stock=ledger.stocks.find(s=>s.code==='KRW'&&(normalize(s.ticker)===normalize(label)||normalize(s.name)===normalize(label)));
