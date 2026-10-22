@@ -361,8 +361,7 @@ function investedKRW(d,amount=totals(d).principal){if(amount===0)return 0;const 
 // MODEL END
 
 // GITHUB SYNC START
-const GITHUB_DATA_PATH='data/overseas-ledger.json';
-const GITHUB_FALLBACK_PATH='overseas-ledger.json';
+const GITHUB_DATA_PATH='overseas-ledger.json';
 function gitConfig(value){
  const c={owner:String(value?.owner||'').trim(),repo:String(value?.repo||'').trim(),branch:String(value?.branch||'main').trim()||'main'};
  if(!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(c.owner))throw Error('GitHub 아이디 또는 조직 이름을 확인해 주세요.');
@@ -385,9 +384,8 @@ class GitHubLedgerClient{
   }catch(e){if(e.status)throw e;if(/illegal invocation/i.test(e.message))throw Error('브라우저 통신 호출 오류입니다. 최신 HTML로 교체한 뒤 새로고침해 주세요. (FETCH_CONTEXT)');if(e instanceof SyntaxError)throw Error('GitHub 응답 형식을 읽지 못했습니다. 네트워크 연결을 확인하고 다시 동기화해 주세요. (INVALID_RESPONSE)');throw Error(e.name==='AbortError'?'GitHub 응답이 지연되어 중단했습니다. 기록은 기기에 남아 있습니다. 다시 동기화해 주세요. (TIMEOUT)':'GitHub까지 요청을 보내지 못했습니다. 일반 브라우저에서 HTML을 열고 api.github.com 연결이 가능한지 확인해 주세요. 기록은 기기에 남아 있습니다. (NETWORK)');}finally{clearTimeout(timer);}
  }
  async verify(branch=false){const repo=await this.request('');if(repo.private!==true)throw Error('투자 기록은 비공개(Private) 저장소에만 저장합니다. 데이터용 비공개 저장소를 선택해 주세요.');if(repo.archived)throw Error('보관 처리된 저장소에는 저장할 수 없습니다. 다른 저장소를 선택해 주세요.');if(branch)await this.request('/branches/'+encodeURIComponent(this.config.branch));return repo;}
- async read(){const ref='?ref='+encodeURIComponent(this.config.branch);let file=await this.request('/contents/'+this.dataPath+ref,'GET',undefined,true);
-  if(file===null&&!this.pathResolved){const fallback=await this.request('/contents/'+GITHUB_FALLBACK_PATH+ref,'GET',undefined,true);if(fallback!==null){this.dataPath=GITHUB_FALLBACK_PATH;file=fallback;}else{const parent=await this.request('/contents/data'+ref,'GET',undefined,true);if(parent!==null&&!Array.isArray(parent))this.dataPath=GITHUB_FALLBACK_PATH;}}
-  this.pathResolved=true;if(file===null)return null;
+ async read(){const ref='?ref='+encodeURIComponent(this.config.branch);const file=await this.request('/contents/'+GITHUB_DATA_PATH+ref,'GET',undefined,true);
+  this.dataPath=GITHUB_DATA_PATH;this.pathResolved=true;if(file===null)return null;
   if(file.type!=='file'||file.encoding!=='base64'||typeof file.content!=='string'||file.size>1000000||!/^[a-f0-9]{40,64}$/.test(file.sha))throw Error('저장된 데이터 파일의 형식 또는 크기를 확인해 주세요.');
   const invalid=reason=>({invalid:true,reason,sha:file.sha,path:this.dataPath,rawBase64:file.content,savedAt:''});
   let payload;try{payload=JSON.parse(fromUtf8Base64(file.content));}catch{return invalid('파일이 비어 있거나 JSON 형식이 아닙니다.');}
