@@ -64,7 +64,7 @@ noscript { display: block; padding: 20px; font-family: sans-serif; }
 #overseas-ledger-v2 .ol-stack{display:grid;gap:10px;grid-template-columns:minmax(0,1fr)}
 #overseas-ledger-v2 .ol-item{border:1px solid var(--ol-line);border-radius:12px;background:var(--ol-panel);overflow:clip}
 #overseas-ledger-v2 .ol-itembar{display:flex;align-items:center;gap:10px;padding:0 14px 0 0}
-#overseas-ledger-v2 .ol-toggle{display:flex;align-items:center;gap:13px;flex:1;min-width:0;text-align:left;padding:15px 17px;border:none;border-radius:0;background:transparent;white-space:normal}
+#overseas-ledger-v2 .ol-toggle{display:flex;align-items:center;gap:13px;flex:1;min-width:0;text-align:left;padding:15px 17px;border:none;border-radius:0;background:transparent;white-space:normal;transition:background-color .14s ease}
 #overseas-ledger-v2 .ol-avatar{width:39px;height:39px;flex:0 0 39px;border-radius:10px;background:var(--ol-soft);display:grid;place-items:center;font-size:11px;letter-spacing:.3px;font-weight:650;color:var(--ol-accent)}
 #overseas-ledger-v2 .ol-identity{min-width:80px;flex:1;overflow-wrap:anywhere}
 #overseas-ledger-v2 .ol-identity strong{display:block;font-size:15px;font-weight:600}
@@ -180,7 +180,8 @@ noscript { display: block; padding: 20px; font-family: sans-serif; }
 #overseas-ledger-v2 .ol-group .ol-stack>.ol-item:nth-child(even){background:var(--ol-panel)}
 #overseas-ledger-v2 .ol-group .ol-stack>.ol-item{border-color:var(--group-edge)}
 #overseas-ledger-v2 .ol-group .ol-weight-track>span{background:var(--group-line)}
-#overseas-ledger-v2 .ol-group .ol-toggle:hover,#overseas-ledger-v2 .ol-income-item .ol-toggle:hover{background:transparent;filter:brightness(.98)}
+#overseas-ledger-v2 .ol-group .ol-toggle:hover{background:color-mix(in srgb,var(--group-tint) 82%,var(--group-line) 18%);filter:none}
+#overseas-ledger-v2 .ol-income-item .ol-toggle:hover{background:light-dark(#e4e7eb,#35414d);filter:none}
 #overseas-ledger-v2 .ol-income-list{display:grid;gap:8px}
 #overseas-ledger-v2 .ol-income-item{border:1px solid var(--ol-line);border-radius:10px;min-width:0;overflow:clip}
 #overseas-ledger-v2 .ol-income-item:nth-child(odd){background:light-dark(#f2f3f5,#29313a)}
