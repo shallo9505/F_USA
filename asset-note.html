@@ -61,7 +61,7 @@ function previousLedgerMonth(ym){const [y,m]=ym.split('-').map(Number);return ne
 function recurringDay(ym,oldDate){const day=Math.max(1,Number(String(oldDate||'').slice(8,10))||1),[y,m]=ym.split('-').map(Number);return ym+'-'+String(Math.min(day,new Date(y,m,0).getDate())).padStart(2,'0')}
 function ensureFixedMonth(month){
  if(!/^\d{4}-\d{2}$/.test(month))return false;
- const rows=db.household.fixedExpenses||[];let changed=false;
+ const rows=db.household.fixedExpenses||[];db.household.fixedSkips??=[];let changed=false;
  // Older fixed expenses had no date. Treat them as entries for the previous month.
  const baseline=previousLedgerMonth(month);
  for(const row of rows){if(!/^\d{4}-\d{2}-\d{2}$/.test(row.date||'')){row.date=baseline+'-01';changed=true}if(!row.recurringId){row.recurringId=row.id||crypto.randomUUID();changed=true}}
@@ -72,7 +72,7 @@ function ensureFixedMonth(month){
   const next=nextLedgerMonth(cursor);if(next>month)break;
   const prior=rows.filter(r=>String(r.date||'').slice(0,7)===cursor);
   for(const r of prior){
-   if(rows.some(q=>String(q.date||'').slice(0,7)===next&&q.recurringId===r.recurringId))continue;
+   if(db.household.fixedSkips.includes(r.recurringId+'@'+next)||rows.some(q=>String(q.date||'').slice(0,7)===next&&q.recurringId===r.recurringId))continue;
    rows.push({...r,date:recurringDay(next,r.date),recurringId:r.recurringId,autoCarried:true});
    changed=true;
   }
@@ -113,7 +113,7 @@ for(const [id,group,tab] of [['kForm','korea',()=>kt],['hForm','household',()=>h
  hEditing=null;
  }else db[group][tab()].push(data);save();e.currentTarget.reset()}}
 all('[data-h]').forEach(b=>b.onclick=()=>{ht=b.dataset.h;all('[data-h]').forEach(x=>x.classList.toggle('active',x===b));render()});$('#hForm').style.display=['monthly','settlement','savings','cards'].includes(ht)?'none':'flex';const savingsForm=$('#hSavingsForm');if(savingsForm)savingsForm.onsubmit=e=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.currentTarget));db.household.savings.push(data);save()};$('#hMonth').onchange=e=>{if(/^\d{4}-\d{2}$/.test(e.target.value)){hSelectedMonth=e.target.value;hEditing=null;render()}};$('#hApplyBudget').onclick=()=>{db.household.settings={budget:Math.max(0,+$('#hBudget').value||0),savingGoal:Math.max(0,+$('#hSavingGoal').value||0)};save();toast('목표를 저장했습니다.')};
-document.addEventListener('click',e=>{const edit=e.target.closest('[data-edit]');if(edit){const [tab,indexText]=edit.dataset.edit.split(':'),index=Number(indexText),item=db.household[tab]?.[index];if(!item)return;ht=tab;hEditing={tab,index};render();for(const [key,value] of Object.entries(item)){const field=$('#hForm').elements.namedItem(key);if(field)field.value=value??''}$('#hForm').scrollIntoView({behavior:'smooth',block:'center'});return}const si=e.target.closest('[data-h-saving-del]');if(si){const i=+si.dataset.hSavingDel;if(confirm('선택한 저축 내역을 삭제할까요?')){db.household.savings.splice(i,1);save()}return}const v=e.target.dataset.del;if(!v)return;const [g,t,i]=v.split(':');if(confirm('선택한 항목을 삭제할까요?')){db[g][t].splice(+i,1);save()}});
+document.addEventListener('click',e=>{const edit=e.target.closest('[data-edit]');if(edit){const [tab,indexText]=edit.dataset.edit.split(':'),index=Number(indexText),item=db.household[tab]?.[index];if(!item)return;ht=tab;hEditing={tab,index};render();for(const [key,value] of Object.entries(item)){const field=$('#hForm').elements.namedItem(key);if(field)field.value=value??''}$('#hForm').scrollIntoView({behavior:'smooth',block:'center'});return}const si=e.target.closest('[data-h-saving-del]');if(si){const i=+si.dataset.hSavingDel;if(confirm('선택한 저축 내역을 삭제할까요?')){db.household.savings.splice(i,1);save()}return}const v=e.target.dataset.del;if(!v)return;const [g,t,i]=v.split(':');if(confirm('선택한 항목을 삭제할까요?')){const existing=db[g]?.[t]?.[+i];if(g==='household'&&t==='fixedExpenses'&&existing?.recurringId){db.household.fixedSkips??=[];db.household.fixedSkips.push(existing.recurringId+'@'+String(existing.date).slice(0,7))}db[g][t].splice(+i,1);save()}});
 
 function loanLinkedExpenses(loan){
  const clean=v=>String(v||'').toLowerCase().replace(/[^a-z0-9가-힣]/g,'');
