@@ -118,6 +118,39 @@ function migrateDomesticIncome(){
  }catch(e){console.warn('국내 수령 항목 이전 실패',e);return false}
  return true;
 }
+// One-time domestic purchases requested for 2026-10-22.
+// Applied only after the newest cloud backup has been loaded, never before it.
+function seedDomesticPurchases(){
+ if(db.korea?.purchaseSeed20261022)return false;
+ const key='domestic-ledger-v1',raw=localStorage.getItem(key);
+ let ledger;try{ledger=raw?JSON.parse(raw):null}catch{return false}
+ if(!ledger||!Array.isArray(ledger.stocks)||!Array.isArray(ledger.trades)||!Array.isArray(ledger.accounts)||!Array.isArray(ledger.incomeItems))return false;
+ const a=ledger.accounts.find(x=>x.code==='KRW');if(!a)return false;
+ const purchases=[
+  ['펩트론',124440,25],['현대약품',8026,50],['JW신약',2527,40],
+  ['SK이터닉스',43425,5],['두산에너빌리티',68800,5],['광전자',7450,10]
+ ];
+ const normalize=s=>String(s||'').replace(/\\s/g,'').toUpperCase();
+ for(let i=0;i<purchases.length;i++){
+  const [label,price,qty]=purchases[i];
+  let stock=ledger.stocks.find(s=>s.code==='KRW'&&(normalize(s.ticker)===normalize(label)||normalize(s.name)===normalize(label)));
+  if(!stock){
+   const id='import20261022_stock_'+i;
+   stock={id,ticker:label,name:label,code:'KRW',groupId:''};ledger.stocks.push(stock);
+  }
+  const amount=price*qty;
+  if(!ledger.trades.some(t=>t.stockId===stock.id&&t.date==='2026-10-22'&&t.side==='buy'&&t.qty===qty&&t.amount===amount&&t.price===price)){
+   ledger.trades.push({id:'import20261022_trade_'+i,stockId:stock.id,accountId:a.id,date:'2026-10-22',side:'buy',amount,qty,price,rate:1});
+  }
+ }
+ try{
+  localStorage.setItem('asset-note-before-20261022-purchases',raw||'');
+  localStorage.setItem(key,JSON.stringify(ledger));
+  db.korea.purchaseSeed20261022=true;
+  localStorage.setItem(KEY,JSON.stringify(db));
+ }catch(e){console.warn('국내주식 매수 저장 실패',e);return false}
+ return true;
+}
 function reloadLedgers(){for(const id of ['overseasFrame','domesticFrame']){const frame=$('#'+id);if(frame)frame.contentWindow?.location.reload()}render()}
 // The latest successfully saved GitHub backup is the shared source of truth.
 let cloudReady=false,cloudApplying=false,cloudDirty=false,cloudTimer=null,cloudBusy=false,cloudLogin='',lastRemoteSnapshot='';
@@ -155,10 +188,10 @@ async function autoLoadAfterLogin(login){
    try{migratedDuringRestore=!!restore(remote,{automatic:true})}finally{cloudApplying=false}
    toast('GitHub의 최신 백업을 자동으로 불러왔습니다.');
   }
-  const migrated=migratedDuringRestore||migrateDomesticIncome();if(migrated)reloadLedgers();
+  const migrated=migratedDuringRestore||migrateDomesticIncome();const seeded=seedDomesticPurchases();if(migrated||seeded)reloadLedgers();
   lastRemoteSnapshot=comparable(remote);cloudReady=true;cloudDirty=false;
   $('#status').textContent='GitHub 최신 백업 동기화 완료';
-  if(migrated)scheduleCloudSave();
+  if(migrated||seeded)scheduleCloudSave();
   $('#authMessage').textContent='GitHub 연결됨: '+login+' · 최신 원격 백업 자동 적용 · 변경 시 자동 저장';
  }catch(e){
   if(/404|No backup found/.test(e.message)){
@@ -196,9 +229,9 @@ function restore(data,{automatic=false}={}){
  db.korea=data.korea;db.household=data.household;
  for(const [key,value] of Object.entries(data.overseasLocalStorage||{})){if([LEGACY,LEGACY+'-recovery',LEGACY+'-raw-recovery'].includes(key))localStorage.setItem(key,value)}
  for(const [key,value] of Object.entries(data.domesticLocalStorage||{})){if(['domestic-ledger-v1','domestic-ledger-v1-recovery','domestic-ledger-v1-raw-recovery'].includes(key))localStorage.setItem(key,value)}
- save();const incomeMigrated=migrateDomesticIncome();reloadLedgers();
+ save();const incomeMigrated=migrateDomesticIncome();const purchasesSeeded=seedDomesticPurchases();reloadLedgers();
  if(!automatic)toast('복원 완료. 해외주식·국내주식 화면도 다시 불러왔습니다.');
- return incomeMigrated;
+ return incomeMigrated||purchasesSeeded;
 }
 $('#importBtn').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{try{const f=e.target.files[0];if(f)restore(JSON.parse(await f.text()))}catch(err){toast('복원 실패: '+err.message)}finally{e.target.value=''}};
 $('#cloudBackup').onclick=async()=>{if(!confirm('현재 브라우저 데이터를 GitHub 비공개 저장소에 저장할까요?'))return;try{const snapshot=bundle(),j=await api('/api/backup',{method:'PUT',body:JSON.stringify(snapshot)});lastRemoteSnapshot=comparable(snapshot);cloudDirty=false;cloudReady=true;$('#status').textContent='GitHub 백업 완료';toast('GitHub 백업 완료 '+(j.updatedAt||''))}catch(e){toast(e.message)}};
