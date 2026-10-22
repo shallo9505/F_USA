@@ -415,6 +415,9 @@ class GitLedgerSync{
   const local=ledgerText(this.h.getData()),remoteText=remote?ledgerText(remote.data):null;this.remote=remote;this.message='';
   if(!remote){this.phase=this.base===null?'new':'conflict';if(this.phase==='conflict')this.message='GitHub에서 데이터 파일이 삭제되었거나 이동되었습니다.';return;}
   if(local===remoteText){this.clean(remote);return;}
+  // GitHub에서 장부가 외부 수정된 경우(savedAt이 마지막 동기화보다 최신) 최신 GitHub 기록을 우선 적용한다.
+  const remoteTime=Date.parse(remote.savedAt||''),baseTime=Date.parse(this.savedAt||'');
+  if(Number.isFinite(remoteTime)&&(!Number.isFinite(baseTime)||remoteTime>baseTime)){if(!this.h.canApply()){this.phase='waiting';this.message='입력 중인 내용을 저장하거나 취소한 뒤 지금 동기화를 눌러 주세요.';return;}this.h.applyData(remote.data);this.clean(remote);return;}
   if((this.base===null&&emptyLedger(this.h.getData()))||local===this.base){if(!this.h.canApply()){this.phase='waiting';this.message='입력 중인 내용을 저장하거나 취소한 뒤 지금 동기화를 눌러 주세요.';return;}this.h.applyData(remote.data);this.clean(remote);return;}
   if(this.base!==null&&remoteText===this.base){this.sha=remote.sha;this.phase='pending';return;}
   this.phase='conflict';this.message='이 기기와 GitHub의 기록이 다릅니다. 사용할 기록을 선택하기 전에는 자동 저장하지 않습니다.';
