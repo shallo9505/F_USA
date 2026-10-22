@@ -56,8 +56,8 @@ if($('#hEditCancel'))$('#hEditCancel').onclick=()=>{hEditing=null;render()};
 all('[data-h]').forEach(b=>b.onclick=()=>{ht=b.dataset.h;hEditing=null;all('[data-h]').forEach(x=>x.classList.toggle('active',x===b));render()});
 const specs={holdings:[['symbol','종목 코드','text'],['name','종목명','text'],['quantity','수량','number'],['avgPrice','평단가(원)','number'],['currentPrice','현재가(원)','number']],transactions:[['date','거래일','date'],['symbol','종목 코드','text'],['type','구분(매수/매도)','text'],['quantity','수량','number'],['price','주당 거래가(원)','number'],['fee','수수료/세금(원)','number']],dividends:[['date','지급일','date'],['symbol','종목 코드','text'],['amount','배당금(원)','number']],expenses:[['date','날짜','date'],['category','분류','text'],['description','내용','text'],['amount','금액(원)','number'],['fixedChoice','고정지출 여부','fixedChoice'],['memo','메모','text'],['paymentMethod','결제수단','payment']],income:[['date','날짜','date'],['category','분류','text'],['description','내용','text'],['amount','금액(원)','number'],['memo','메모','text']],fixedExpenses:[['date','날짜','date'],['name','항목','text'],['category','분류','text'],['amount','월 금액(원)','number'],['memo','메모','text']]};
 function form(group,tab){const spec=specs[tab];return spec?spec.map(([id,title,type])=>type==='payment'?'<label>'+title+'<select name="'+id+'"><option value="card">신용카드</option><option value="transfer">계좌이체/현금</option></select></label>':type==='fixedChoice'?'<label class="fixed-pick">'+title+'<select name="'+id+'" aria-label="고정지출 여부"><option value="">선택 안 함 (일반 지출)</option><option value="fixed">고정지출로 이동</option></select></label>':'<label>'+title+'<input name="'+id+'" type="'+type+'" '+(type==='number'?'step="any"':'')+' '+(type==='date'?'value="'+new Date().toLocaleDateString('sv-SE')+'"':'')+(['memo','date'].includes(id)&&tab==='fixedExpenses'||id==='memo'?'':' required')+'></label>').join('')+'<button class="primary" type="submit">'+(group==='household'&&hEditing?.tab===tab?'수정 저장':'추가')+'</button>'+(group==='household'&&hEditing?.tab===tab?'<button type="button" id="hEditCancel">수정 취소</button>':''):''}
-function nextLedgerMonth(ym){const [y,m]=ym.split('-').map(Number);return new Date(y,m,1).toISOString().slice(0,7)}
-function previousLedgerMonth(ym){const [y,m]=ym.split('-').map(Number);return new Date(y,m-2,1).toISOString().slice(0,7)}
+function nextLedgerMonth(ym){const [y,m]=ym.split('-').map(Number);return (m===12?y+1:y)+'-'+String(m===12?1:m+1).padStart(2,'0')}
+function previousLedgerMonth(ym){const [y,m]=ym.split('-').map(Number);return (m===1?y-1:y)+'-'+String(m===1?12:m-1).padStart(2,'0')}
 function recurringDay(ym,oldDate){const day=Math.max(1,Number(String(oldDate||'').slice(8,10))||1),[y,m]=ym.split('-').map(Number);return ym+'-'+String(Math.min(day,new Date(y,m,0).getDate())).padStart(2,'0')}
 function ensureFixedMonth(month){
  if(!/^\d{4}-\d{2}$/.test(month))return false;
@@ -65,7 +65,7 @@ function ensureFixedMonth(month){
  // Older fixed expenses had no date. Treat them as entries for the previous month.
  const baseline=previousLedgerMonth(month);
  for(const row of rows){if(!/^\d{4}-\d{2}-\d{2}$/.test(row.date||'')){row.date=baseline+'-01';changed=true}if(!row.recurringId){row.recurringId=row.id||crypto.randomUUID();changed=true}}
- const dated=rows.filter(r=>/^\d{4}-\d{2}$/.test(r.date||'')).map(r=>r.date.slice(0,7)).sort();
+ const dated=rows.filter(r=>/^\d{4}-\d{2}-\d{2}$/.test(r.date||'')).map(r=>r.date.slice(0,7)).sort();
  if(!dated.length)return changed;
  let cursor=dated[0];
  for(let count=0;count<240&&cursor<month;count++){
