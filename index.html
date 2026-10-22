@@ -320,7 +320,8 @@ function reorderLedgerItem(d,kind,id,targetId,placement='before'){
  else if(kind==='stock')next.stocks=bySavedOrder(next.stocks,ids);else next.accounts=bySavedOrder(next.accounts,ids);
  return next;
 }
-function defaultIncomeAccount(d,code){return d.accounts.find(a=>a.code===code)||null;}
+function defaultIncomeAccount(d,code){if(code==='USD')return d.accounts.find(a=>a.code==='USD'&&a.label==='달러')||d.accounts.find(a=>a.code===code)||null;return d.accounts.find(a=>a.code===code)||null;}
+function defaultTradeAccount(d,code){if(code==='USD')return d.accounts.find(a=>a.id==='usd1')||d.accounts.find(a=>a.code==='USD'&&(a.label==='달러_3000'||a.label==='달러_엄마'))||d.accounts.find(a=>a.code===code)||null;return d.accounts.find(a=>a.code===code)||null;}
 const blank=()=>({version:5,groups:[],accounts:[{id:'usd1',label:'달러1',code:'USD',unit:1}],stocks:[],exchanges:[],trades:[],incomes:[],incomeItems:[],order:{groups:[],incomes:[]}});
 function validDate(s){if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(s)||s.slice(0,4)<'1900'||s.slice(0,4)>'2199')return false;const d=new Date(s+'T00:00:00Z');return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===s;}
 function validate(d){
