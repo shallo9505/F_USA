@@ -61,25 +61,34 @@ function previousLedgerMonth(ym){const [y,m]=ym.split('-').map(Number);return (m
 function recurringDay(ym,oldDate){const day=Math.max(1,Number(String(oldDate||'').slice(8,10))||1),[y,m]=ym.split('-').map(Number);return ym+'-'+String(Math.min(day,new Date(y,m,0).getDate())).padStart(2,'0')}
 function ensureFixedMonth(month){
  if(!/^\d{4}-\d{2}$/.test(month))return false;
- const rows=db.household.fixedExpenses||[];db.household.fixedSkips??=[];let changed=false;
- // Older fixed expenses had no date. Treat them as entries for the previous month.
- const baseline=previousLedgerMonth(month);
- for(const row of rows){if(!/^\d{4}-\d{2}-\d{2}$/.test(row.date||'')){row.date=baseline+'-01';changed=true}if(!row.recurringId){row.recurringId=row.id||crypto.randomUUID();changed=true}}
- const dated=rows.filter(r=>/^\d{4}-\d{2}-\d{2}$/.test(r.date||'')).map(r=>r.date.slice(0,7)).sort();
- if(!dated.length)return changed;
- let cursor=dated[0];
- for(let count=0;count<240&&cursor<month;count++){
-  const next=nextLedgerMonth(cursor);if(next>month)break;
-  const prior=rows.filter(r=>String(r.date||'').slice(0,7)===cursor);
-  for(const r of prior){
-   if(db.household.fixedSkips.includes(r.recurringId+'@'+next)||rows.some(q=>String(q.date||'').slice(0,7)===next&&q.recurringId===r.recurringId))continue;
-   rows.push({...r,date:recurringDay(next,r.date),recurringId:r.recurringId,autoCarried:true});
-   changed=true;
+ const rows=db.household.fixedExpenses||[];
+ db.household.fixedSkips??=[];
+ let changed=false;
+ // Legacy rows without a date are anchored to the preceding month once only.
+ for(const r of rows){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date||''))){
+   r.date=previousLedgerMonth(month)+'-01';changed=true;
   }
-  cursor=next;
+  if(!r.recurringId){r.recurringId=r.id||crypto.randomUUID();changed=true}
+ }
+ // Generate a missing month from the most recent earlier occurrence of each bill.
+ // Unlike a month-by-month chain, this also handles gaps in the user's records.
+ const active=new Map();
+ for(const r of rows){
+  const sourceMonth=String(r.date).slice(0,7);
+  if(sourceMonth>=month)continue;
+  const key=String(r.recurringId);
+  if(!active.has(key)||String(active.get(key).date)<String(r.date))active.set(key,r);
+ }
+ for(const [key,source] of active){
+  if(db.household.fixedSkips.includes(key+'@'+month))continue;
+  if(rows.some(r=>r.recurringId===key&&String(r.date||'').slice(0,7)===month))continue;
+  const newEntry={...source,date:recurringDay(month,source.date),recurringId:key,autoCarried:true};
+  rows.push(newEntry);changed=true;
  }
  return changed;
 }
+
 function table(group,tab){const base=db[group][tab]||[],rows=group==='household'&&['expenses','income','fixedExpenses'].includes(tab)?base.map((r,index)=>({...r,__index:index})).filter(r=>String(r.date||'').slice(0,7)===hSelectedMonth):base.map((r,index)=>({...r,__index:index})), spec=specs[tab];if(!spec)return '';return '<div style="overflow-x:auto;margin-top:14px"><table><thead><tr>'+spec.map(s=>'<th>'+s[1]+'</th>').join('')+'<th>관리</th></tr></thead><tbody>'+rows.map((r,i)=>'<tr>'+spec.map(([key,,type])=>'<td'+(type==='number'?' class="num"':'')+'>'+escape(type==='payment'?(r[key]==='card'?'신용카드':r[key]==='transfer'?'계좌/현금':'미지정'):type==='number'?num(r[key]):type==='fixedChoice'?(r[key]==='fixed'?'고정지출':''):r[key])+'</td>').join('')+'<td>'+(group==='household'?'<button data-edit="'+tab+':'+r.__index+'">수정</button> ':'')+'<button data-del="'+group+':'+tab+':'+r.__index+'">삭제</button></td></tr>').join('')+'</tbody></table></div>'+(rows.length?'':'<p class="muted">등록된 내역이 없습니다.</p>')}
 function hKind(r){if(r.fixedChoice==='fixed'||r.fromExpense===true)return 'fixed';const t=[r.category,r.description,r.memo].join(' ').toLowerCase();if(/엄마|구매대행|대납/.test(t))return 'agency';if(/저축|적금|예금|청약|cma|주식투자|투자금/.test(t))return 'saving';if(/월세|관리비|통신|가스|전기|보험|정기|구독|대출|이자|교통정기/.test(t))return 'fixed';return 'consumption'}
 function hSummary(month){const expenses=[...db.household.expenses,...db.household.fixedExpenses].filter(r=>String(r.date||'').startsWith(month)),income=db.household.income.filter(r=>String(r.date||'').startsWith(month));const sum=rs=>rs.reduce((v,r)=>v+(+r.amount||0),0),by={agency:0,saving:0,fixed:0,consumption:0},categories={};for(const r of expenses){const k=hKind(r),a=+r.amount||0;by[k]+=a;if(k==='consumption'){const c=r.category||'미분류';categories[c]=(categories[c]||0)+a}}return{income:sum(income),...by,categories,expenses:sum(expenses),personal:by.fixed+by.consumption+by.agency,net:sum(income)-sum(expenses)}}
