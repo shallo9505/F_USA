@@ -10,7 +10,7 @@
 <section id="korea" class="hidden"><iframe id="domesticFrame" title="국내주식" src="./domestic.html?embedded=1"></iframe></section>
 <section id="household" class="hidden"><div class="panel"><h2>가계부</h2><div id="hMetrics" class="grid"></div></div><div class="panel"><div class="row section-tabs"><button class="active" data-h="expenses">지출</button><button data-h="income">수입</button><button data-h="fixedExpenses">고정지출</button><button data-h="monthly">월별분석</button></div><form id="hForm" class="row"></form><div id="hTable"></div></div></section>
 </main>
-<dialog id="settings"><div class="row"><h2>통합 데이터 관리</h2><button class="right" id="closeSettings">닫기</button></div><p class="notice">해외 주식의 기존 화면·로컬 데이터는 변경하지 않습니다. 이 화면에서 내려받는 백업에는 같은 출처의 해외주식 로컬 데이터와 국내주식·가계부 데이터가 포함됩니다. 비밀번호나 PAT는 저장하지 않습니다.</p><div class="row"><button class="primary" id="exportBtn">전체 JSON 백업 내려받기</button><button id="importBtn">백업에서 복원</button><input class="hidden" id="importFile" type="file" accept=".json,application/json"></div><hr><h3>GitHub 계정 연결</h3><p class="muted" id="authMessage">GitHub OAuth 인증 서버가 설정되지 않았습니다. 아래 서버 주소를 설정하면 로그인 버튼이 활성화됩니다.</p><div class="row"><label>OAuth 서버 주소<input id="backendUrl" placeholder="https://example.workers.dev" autocomplete="off"></label><button id="saveBackend">주소 저장</button><button id="githubLogin">GitHub로 로그인</button><button id="githubLogout" class="hidden">연결 해제</button></div><div class="row"><button id="cloudBackup">GitHub 전체 백업</button><button id="cloudRestore">GitHub 백업 복원</button></div><p class="muted">GitHub 원격 백업은 별도의 OAuth 서버 배포·허용 계정 등록·비공개 저장소 권한 설정 후 사용할 수 있습니다. 원격 복원은 로컬 데이터를 덮어쓰므로 확인 후 실행합니다.</p></dialog><div id="toast" class="hidden" role="status"></div>
+<dialog id="settings"><div class="row"><h2>통합 데이터 관리</h2><button class="right" id="closeSettings">닫기</button></div><p class="notice">해외 주식의 기존 화면·로컬 데이터는 변경하지 않습니다. 이 화면에서 내려받는 백업에는 같은 출처의 해외주식 로컬 데이터와 국내주식·가계부 데이터가 포함됩니다. 비밀번호나 PAT는 저장하지 않습니다.</p><div class="row"><button class="primary" id="exportBtn">전체 JSON 백업 내려받기</button><button id="importBtn">백업에서 복원</button><input class="hidden" id="importFile" type="file" accept=".json,application/json"></div><hr><h3>GitHub 계정 연결</h3><p class="muted" id="authMessage">GitHub OAuth 인증 서버가 설정되지 않았습니다. 아래 서버 주소를 설정하면 로그인 버튼이 활성화됩니다.</p><div class="row"><label>OAuth 서버 주소<input id="backendUrl" placeholder="https://example.workers.dev" autocomplete="off"></label><button id="saveBackend">주소 저장</button><button id="githubLogin">GitHub로 로그인</button><button id="githubLogout" class="hidden">연결 해제</button></div><div class="row"><button id="cloudBackup">GitHub 전체 백업</button><button id="cloudRestore">GitHub 백업 복원</button></div><p class="muted">로그인되면 비공개 GitHub 저장소의 최신 백업을 자동으로 가져옵니다. 수정사항은 자동 저장됩니다. 기존 데이터가 달랐던 경우 교체 전 기록을 이 브라우저에 별도로 보관합니다.</p></dialog><div id="toast" class="hidden" role="status"></div>
 <script>
 (()=>{'use strict';
 const KEY='asset-note-unified-v1', LEGACY='overseas-ledger-preview-v1', DEFAULT={version:1,korea:{holdings:[],transactions:[],dividends:[]},household:{expenses:[],income:[],fixedExpenses:[]}}, $=s=>document.querySelector(s), all=s=>[...document.querySelectorAll(s)];
@@ -18,7 +18,7 @@ let db;try{db=JSON.parse(localStorage.getItem(KEY)||'null')||structuredClone(DEF
 for(const group of ['korea','household']){db[group]??={};for(const k of Object.keys(DEFAULT[group]))db[group][k]??=[]}
 let kt='holdings', ht='expenses';const won=n=>new Intl.NumberFormat('ko-KR',{maximumFractionDigits:2}).format(Number(n)||0)+'원',num=n=>new Intl.NumberFormat('ko-KR',{maximumFractionDigits:4}).format(Number(n)||0),escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),metric=(a,b)=>'<div class="metric"><div class="muted">'+a+'</div><strong>'+b+'</strong></div>';
 function toast(msg){$('#toast').textContent=msg;$('#toast').classList.remove('hidden');setTimeout(()=>$('#toast').classList.add('hidden'),3500)}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(db));$('#status').textContent='로컬 저장 완료'}catch(e){toast('저장 실패: '+e.message)}render()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(db));$('#status').textContent='로컬 저장 완료';scheduleCloudSave()}catch(e){toast('저장 실패: '+e.message)}render()}
 function topOnTabChange(){
   if('scrollRestoration' in history)history.scrollRestoration='manual';
   window.scrollTo(0,0);document.documentElement.scrollTop=0;document.body.scrollTop=0;
@@ -70,28 +70,70 @@ function hasLocalLedger(){
  ||['holdings','transactions','dividends'].some(k=>(db.korea[k]||[]).length);
 }
 function reloadLedgers(){for(const id of ['overseasFrame','domesticFrame']){const frame=$('#'+id);if(frame)frame.contentWindow?.location.reload()}render()}
+// The latest successfully saved GitHub backup is the shared source of truth.
+let cloudReady=false,cloudApplying=false,cloudDirty=false,cloudTimer=null,cloudBusy=false,cloudLogin='',lastRemoteSnapshot='';
+const EDIT_KEYS=new Set([KEY,LEGACY,'domestic-ledger-v1']);
+const comparable=b=>JSON.stringify({korea:b.korea,household:b.household,overseasLocalStorage:b.overseasLocalStorage,domesticLocalStorage:b.domesticLocalStorage});
+function scheduleCloudSave(){
+ if(cloudApplying||!cloudReady||!cloudLogin)return;
+ cloudDirty=true;$('#status').textContent='GitHub 저장 대기';
+ clearTimeout(cloudTimer);cloudTimer=setTimeout(flushCloudSave,1300);
+}
+async function flushCloudSave(){
+ if(!cloudReady||!cloudDirty||cloudBusy)return;
+ cloudBusy=true;cloudDirty=false;
+ try{
+  const data=bundle(),j=await api('/api/backup',{method:'PUT',body:JSON.stringify(data)});
+  lastRemoteSnapshot=comparable(data);$('#status').textContent='GitHub 자동 저장 완료';
+ }catch(e){
+  cloudDirty=true;$('#status').textContent='GitHub 자동 저장 실패';
+  $('#authMessage').textContent='GitHub 연결됨: '+cloudLogin+' · 자동 저장 실패: '+e.message;
+ }finally{
+  cloudBusy=false;if(cloudDirty&&cloudReady){clearTimeout(cloudTimer);cloudTimer=setTimeout(flushCloudSave,5000)}
+ }
+}
+window.addEventListener('storage',e=>{if(EDIT_KEYS.has(e.key)&&e.newValue!==e.oldValue&&!cloudApplying)scheduleCloudSave()});
 async function autoLoadAfterLogin(login){
+ cloudLogin=login;cloudReady=false;clearTimeout(cloudTimer);
  try{
   const remote=await api('/api/backup');
-  if(remote?.format!=='asset-note-combined'||remote.version!==1)return;
-  if(!hasLocalLedger()){
-   restore(remote,{automatic:true});$('#status').textContent='GitHub 백업 자동 불러오기 완료';toast('GitHub 백업을 자동으로 불러왔습니다.');
-  }else{
-   $('#status').textContent='로컬 데이터 유지';
-   $('#authMessage').textContent='GitHub 연결됨: '+login+' · 이 브라우저에 기록이 있어 자동 덮어쓰기는 하지 않았습니다. 필요하면 GitHub 백업 복원을 선택하세요.';
+  if(remote?.format!=='asset-note-combined'||remote.version!==1)throw Error('백업 형식이 올바르지 않습니다.');
+  const current=bundle();
+  if(comparable(current)!==comparable(remote)){
+   // Keep a local recovery copy so a never-synced device is not silently destroyed.
+   try{localStorage.setItem('asset-note-before-auto-sync',JSON.stringify(current))}catch(e){}
+   cloudApplying=true;
+   try{restore(remote,{automatic:true})}finally{cloudApplying=false}
+   toast('GitHub의 최신 백업을 자동으로 불러왔습니다.');
   }
- }catch(e){if(/404|No backup found/.test(e.message)){$('#status').textContent='GitHub 백업 없음';return}$('#status').textContent='GitHub 자동 불러오기 실패';$('#authMessage').textContent='GitHub 연결됨: '+login+' · 자동 불러오기 실패: '+e.message}
+  lastRemoteSnapshot=comparable(remote);cloudReady=true;cloudDirty=false;
+  $('#status').textContent='GitHub 최신 백업 동기화 완료';
+  $('#authMessage').textContent='GitHub 연결됨: '+login+' · 최신 원격 백업 자동 적용 · 변경 시 자동 저장';
+ }catch(e){
+  if(/404|No backup found/.test(e.message)){
+   cloudReady=false;$('#status').textContent='GitHub 백업 없음';
+   $('#authMessage').textContent='GitHub 연결됨: '+login+' · 아직 원격 백업이 없습니다. 처음 한 번은 GitHub 전체 백업을 눌러 주세요.';
+   return;
+  }
+  cloudReady=false;$('#status').textContent='GitHub 자동 동기화 실패';
+  $('#authMessage').textContent='GitHub 연결됨: '+login+' · 동기화 실패: '+e.message;
+ }
 }
 async function checkAuth(){
  if(!backend()){$('#authMessage').textContent='OAuth 서버 주소를 설정해 주세요.';return}
- try{const j=await api('/api/me');const logged=!!j.login;
- $('#authMessage').textContent=logged?'GitHub 연결됨: '+j.login:'GitHub 로그인 필요';
- $('#githubLogout').classList.toggle('hidden',!logged);
- if(logged)await autoLoadAfterLogin(j.login);
- }catch(e){$('#githubLogout').classList.add('hidden');$('#authMessage').textContent=/401|Not authenticated/.test(e.message)?'GitHub 로그인 필요 · 로그인하면 비어 있는 브라우저에 백업이 자동으로 복원됩니다.':'OAuth 서버 확인 실패: '+e.message}
+ try{
+  const j=await api('/api/me'),logged=!!j.login;
+  $('#authMessage').textContent=logged?'GitHub 연결됨: '+j.login:'GitHub 로그인 필요';
+  $('#githubLogout').classList.toggle('hidden',!logged);
+  if(logged)await autoLoadAfterLogin(j.login);
+  else{cloudReady=false;cloudLogin=''}
+ }catch(e){
+  cloudReady=false;cloudLogin='';$('#githubLogout').classList.add('hidden');
+  $('#authMessage').textContent=/401|Not authenticated/.test(e.message)?'GitHub 로그인 필요 · 로그인하면 GitHub의 최신 백업을 자동으로 불러옵니다.':'OAuth 서버 확인 실패: '+e.message;
+ }
 }
 $('#githubLogin').onclick=()=>{if(!backend())return toast('OAuth 서버 주소를 먼저 설정하세요.');location.href=backend()+'/auth/login?return='+encodeURIComponent(location.href)};
-$('#githubLogout').onclick=async()=>{try{await api('/auth/logout',{method:'POST'});checkAuth()}catch(e){toast(e.message)}};
+$('#githubLogout').onclick=async()=>{try{cloudReady=false;cloudLogin='';await api('/auth/logout',{method:'POST'});checkAuth()}catch(e){toast(e.message)}};
 function bundle(){const legacy={},domestic={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k===LEGACY||k.startsWith(LEGACY+'-recovery')||k.startsWith(LEGACY+'-raw-recovery'))legacy[k]=localStorage.getItem(k)}for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k==='domestic-ledger-v1'||k==='domestic-ledger-v1-recovery'||k==='domestic-ledger-v1-raw-recovery')domestic[k]=localStorage.getItem(k)}return{format:'asset-note-combined',version:1,exportedAt:new Date().toISOString(),korea:db.korea,household:db.household,overseasLocalStorage:legacy,domesticLocalStorage:domestic}}
 function download(data){const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='asset-note-backup-'+new Date().toLocaleDateString('sv-SE')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}
 $('#exportBtn').onclick=()=>{download(bundle());toast('전체 백업을 내려받았습니다.')};
@@ -107,8 +149,8 @@ function restore(data,{automatic=false}={}){
  if(!automatic)toast('복원 완료. 해외주식·국내주식 화면도 다시 불러왔습니다.');
 }
 $('#importBtn').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{try{const f=e.target.files[0];if(f)restore(JSON.parse(await f.text()))}catch(err){toast('복원 실패: '+err.message)}finally{e.target.value=''}};
-$('#cloudBackup').onclick=async()=>{if(!confirm('모든 자산 데이터를 연결된 비공개 GitHub 저장소로 백업할까요?'))return;try{const j=await api('/api/backup',{method:'PUT',body:JSON.stringify(bundle())});toast('GitHub 백업 완료 '+(j.updatedAt||''))}catch(e){toast(e.message)}};
-$('#cloudRestore').onclick=async()=>{try{const j=await api('/api/backup');restore(j)}catch(e){toast(e.message)}};
-wireLedgerFrame('overseasFrame');wireLedgerFrame('domesticFrame');if(['#korea','#household'].includes(location.hash)){document.querySelector('[data-main="'+location.hash.slice(1)+'"]').click()}else render();checkAuth();
+$('#cloudBackup').onclick=async()=>{if(!confirm('현재 브라우저 데이터를 GitHub 비공개 저장소에 저장할까요?'))return;try{const snapshot=bundle(),j=await api('/api/backup',{method:'PUT',body:JSON.stringify(snapshot)});lastRemoteSnapshot=comparable(snapshot);cloudDirty=false;cloudReady=true;$('#status').textContent='GitHub 백업 완료';toast('GitHub 백업 완료 '+(j.updatedAt||''))}catch(e){toast(e.message)}};
+$('#cloudRestore').onclick=async()=>{try{const j=await api('/api/backup');cloudApplying=true;try{restore(j)}finally{cloudApplying=false}cloudReady=true;lastRemoteSnapshot=comparable(j);cloudDirty=false;toast('GitHub 백업 복원 완료')}catch(e){toast('복원 실패: '+e.message)}};
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&!cloudDirty&&!cloudBusy)autoLoadAfterLogin(cloudLogin)});wireLedgerFrame('overseasFrame');wireLedgerFrame('domesticFrame');if(['#korea','#household'].includes(location.hash)){document.querySelector('[data-main="'+location.hash.slice(1)+'"]').click()}else render();checkAuth();
 })();
 </script></body></html>
