@@ -69,6 +69,55 @@ function hasLocalLedger(){
  return ['expenses','income','fixedExpenses'].some(k=>(db.household[k]||[]).length)
  ||['holdings','transactions','dividends'].some(k=>(db.korea[k]||[]).length);
 }
+// Move the two KRW income categories (and their linked payments) to the domestic ledger.
+// Idempotent: once moved, the source items/payments no longer exist.
+function migrateDomesticIncome(){
+ const foreignKey=LEGACY,homeKey='domestic-ledger-v1';
+ let foreign,home;
+ try{foreign=JSON.parse(localStorage.getItem(foreignKey)||'null');home=JSON.parse(localStorage.getItem(homeKey)||'null')}catch{return false}
+ if(!foreign||!Array.isArray(foreign.incomeItems)||!Array.isArray(foreign.incomes))return false;
+ const normalize=s=>String(s||'').toLowerCase().replace(/[\\s_\\-·/()]/g,'');
+ const targets=new Set(['국내배당금','토스증권이자원화']);
+ const items=foreign.incomeItems.filter(i=>targets.has(normalize(i.label)));
+ if(!items.length)return false;
+ if(!home)home={version:5,groups:[],accounts:[{id:'krw1',label:'원화',code:'KRW',unit:1}],stocks:[],exchanges:[],trades:[],incomes:[],incomeItems:[],order:{groups:[],incomes:[]}};
+ if(!Array.isArray(home.incomeItems)||!Array.isArray(home.incomes)||!Array.isArray(home.accounts))return false;
+ const sourceIds=new Set(items.map(i=>i.id)),payments=foreign.incomes.filter(x=>sourceIds.has(x.itemId));
+ const mapAccount=new Map(),mapItem=new Map();
+ for(const payment of payments){
+  if(mapAccount.has(payment.accountId))continue;
+  const old=(foreign.accounts||[]).find(a=>a.id===payment.accountId);
+  if(!old)return false;
+  let dest=home.accounts.find(a=>a.code===old.code);
+  if(!dest){dest={id:'migrated-account-'+old.id,label:old.label||old.code,code:old.code,unit:old.unit||1};if(home.accounts.some(a=>a.id===dest.id))dest.id+='-income';home.accounts.push(dest)}
+  mapAccount.set(old.id,dest.id);
+ }
+ for(const item of items){
+  let id=item.id;
+  if(home.incomeItems.some(x=>x.id===id)){id='migrated-'+id;while(home.incomeItems.some(x=>x.id===id))id+='-2'}
+  mapItem.set(item.id,id);
+  const targetAccount=(foreign.accounts||[]).find(a=>(a.code===item.code));
+  const code=item.code||targetAccount?.code||'KRW';
+  home.incomeItems.push({...item,id,code,stockId:''});
+ }
+ for(const payment of payments){
+  let id=payment.id;
+  if(home.incomes.some(x=>x.id===id)){id='migrated-'+id;while(home.incomes.some(x=>x.id===id))id+='-2'}
+  home.incomes.push({...payment,id,itemId:mapItem.get(payment.itemId),accountId:mapAccount.get(payment.accountId)});
+ }
+ home.order??={groups:[],incomes:[]};
+ home.order.incomes=[...(home.order.incomes||[]),...items.map(i=>mapItem.get(i.id))];
+ foreign.incomes=foreign.incomes.filter(x=>!sourceIds.has(x.itemId));
+ foreign.incomeItems=foreign.incomeItems.filter(x=>!sourceIds.has(x.id));
+ if(foreign.order?.incomes)foreign.order.incomes=foreign.order.incomes.filter(id=>!sourceIds.has(id));
+ // Preserve the original source and destination before changing either ledger.
+ try{
+  localStorage.setItem('asset-note-income-migration-recovery',JSON.stringify({at:new Date().toISOString(),overseas:foreignKey,domestic:homeKey,items,payments}));
+  localStorage.setItem(homeKey,JSON.stringify(home));
+  localStorage.setItem(foreignKey,JSON.stringify(foreign));
+ }catch(e){console.warn('국내 수령 항목 이전 실패',e);return false}
+ return true;
+}
 function reloadLedgers(){for(const id of ['overseasFrame','domesticFrame']){const frame=$('#'+id);if(frame)frame.contentWindow?.location.reload()}render()}
 // The latest successfully saved GitHub backup is the shared source of truth.
 let cloudReady=false,cloudApplying=false,cloudDirty=false,cloudTimer=null,cloudBusy=false,cloudLogin='',lastRemoteSnapshot='';
@@ -106,7 +155,9 @@ async function autoLoadAfterLogin(login){
    try{restore(remote,{automatic:true})}finally{cloudApplying=false}
    toast('GitHub의 최신 백업을 자동으로 불러왔습니다.');
   }
+  const migrated=migrateDomesticIncome();if(migrated)reloadLedgers();
   lastRemoteSnapshot=comparable(remote);cloudReady=true;cloudDirty=false;
+  if(migrated)scheduleCloudSave();
   $('#status').textContent='GitHub 최신 백업 동기화 완료';
   $('#authMessage').textContent='GitHub 연결됨: '+login+' · 최신 원격 백업 자동 적용 · 변경 시 자동 저장';
  }catch(e){
@@ -145,12 +196,12 @@ function restore(data,{automatic=false}={}){
  db.korea=data.korea;db.household=data.household;
  for(const [key,value] of Object.entries(data.overseasLocalStorage||{})){if([LEGACY,LEGACY+'-recovery',LEGACY+'-raw-recovery'].includes(key))localStorage.setItem(key,value)}
  for(const [key,value] of Object.entries(data.domesticLocalStorage||{})){if(['domestic-ledger-v1','domestic-ledger-v1-recovery','domestic-ledger-v1-raw-recovery'].includes(key))localStorage.setItem(key,value)}
- save();reloadLedgers();
+ save();migrateDomesticIncome();reloadLedgers();
  if(!automatic)toast('복원 완료. 해외주식·국내주식 화면도 다시 불러왔습니다.');
 }
 $('#importBtn').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{try{const f=e.target.files[0];if(f)restore(JSON.parse(await f.text()))}catch(err){toast('복원 실패: '+err.message)}finally{e.target.value=''}};
 $('#cloudBackup').onclick=async()=>{if(!confirm('현재 브라우저 데이터를 GitHub 비공개 저장소에 저장할까요?'))return;try{const snapshot=bundle(),j=await api('/api/backup',{method:'PUT',body:JSON.stringify(snapshot)});lastRemoteSnapshot=comparable(snapshot);cloudDirty=false;cloudReady=true;$('#status').textContent='GitHub 백업 완료';toast('GitHub 백업 완료 '+(j.updatedAt||''))}catch(e){toast(e.message)}};
 $('#cloudRestore').onclick=async()=>{try{const j=await api('/api/backup');cloudApplying=true;try{restore(j)}finally{cloudApplying=false}cloudReady=true;lastRemoteSnapshot=comparable(j);cloudDirty=false;toast('GitHub 백업 복원 완료')}catch(e){toast('복원 실패: '+e.message)}};
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&!cloudDirty&&!cloudBusy)autoLoadAfterLogin(cloudLogin)});wireLedgerFrame('overseasFrame');wireLedgerFrame('domesticFrame');if(['#korea','#household'].includes(location.hash)){document.querySelector('[data-main="'+location.hash.slice(1)+'"]').click()}else render();checkAuth();
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&!cloudDirty&&!cloudBusy)autoLoadAfterLogin(cloudLogin)});migrateDomesticIncome();wireLedgerFrame('overseasFrame');wireLedgerFrame('domesticFrame');if(['#korea','#household'].includes(location.hash)){document.querySelector('[data-main="'+location.hash.slice(1)+'"]').click()}else render();checkAuth();
 })();
 </script></body></html>
