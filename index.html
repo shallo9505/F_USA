@@ -46,7 +46,7 @@ noscript { display: block; padding: 20px; font-family: sans-serif; }
 #overseas-ledger-v2 .ol-notice{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-radius:10px;background:var(--ol-tint);padding:11px 14px;margin-bottom:18px}
 #overseas-ledger-v2 .ol-notice b{font-weight:600;color:var(--ol-accent)}
 #overseas-ledger-v2 .ol-notice span{font-size:12px;color:var(--ol-sub)}
-#overseas-ledger-v2 .ol-metrics{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:12px;margin-bottom:20px}
+#overseas-ledger-v2 .ol-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:20px}@media(max-width:950px){.ol-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:520px){.ol-metrics{grid-template-columns:1fr}}
 #overseas-ledger-v2 .ol-metric{border-radius:12px;background:var(--ol-panel);border:1px solid var(--ol-line);padding:17px 18px;min-width:0}
 #overseas-ledger-v2 .ol-metric:first-child{background:var(--ol-accent);color:var(--ol-on);border-color:transparent}
 #overseas-ledger-v2 .ol-metric:first-child .ol-label,#overseas-ledger-v2 .ol-metric:first-child small{color:var(--ol-on);opacity:.8}
