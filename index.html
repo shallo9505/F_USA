@@ -747,7 +747,7 @@ root.addEventListener('input',e=>{
  if(kind==='trade'){
   const sell=el.side.value==='sell',a=account(el.accountId.value);el.amount.parentElement.firstChild.textContent=`${sell?'매도금액 · 실수령':'매수금액 · 실결제'} (${a.code})`;el.qty.parentElement.firstChild.textContent=sell?'매도주수':'매수주수';
   if(e.target.name==='amount')f.dataset.manualAmount='1';if(['qty','price'].includes(e.target.name)&&!f.dataset.manualAmount&&!f.dataset.id&&el.qty.value&&el.price.value)el.amount.value=round(Number(el.qty.value)*Number(el.price.value));
-  if(e.target.name==='accountId'){const avg=accountTotals(data,a.id).average;el.rate.value=avg>0?round(avg,4):'';el.rate.parentElement.firstChild.textContent=`거래 당시 환율 (원 / ${a.unit} ${a.code})`;}
+  if(e.target.name==='accountId'){/* Keep the recorded trade-time rate when switching payment accounts. */el.rate.parentElement.firstChild.textContent=`거래 당시 환율 (원 / ${a.unit} ${a.code})`;}
   const existing=data.trades.find(x=>x.id===f.dataset.id),previous=existing&&existing.accountId===a.id?(existing.side==='sell'?existing.amount:-existing.amount):0,after=accountTotals(data,a.id).balance-previous+(sell?1:-1)*Number(el.amount.value||0);
   f.querySelector('[data-livehint]').textContent=`저장 후 ${a.label} 잔액 ${money(after,a.code)} · ${sell?'세금·수수료를 뺀 실제 입금액을 입력하세요.':'수수료를 포함한 실제 결제액을 입력하세요.'}${after<0?' 누락된 기록을 확인해 주세요.':''}`;
  }
