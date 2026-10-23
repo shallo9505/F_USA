@@ -426,7 +426,8 @@ function restore(data,{automatic=false}={}){
  for(const key of Object.keys(DEFAULT.household))if(!Array.isArray(data.household[key]))throw Error('가계부 백업 검증 실패');
  if(!automatic&&!confirm('현재 국내주식·가계부와 포함된 해외주식 로컬 데이터를 덮어쓸까요?'))return;
  db.korea=data.korea;db.household=data.household;db.loans=(data.loans&&Array.isArray(data.loans.items)&&Array.isArray(data.loans.payments))?data.loans:{items:[],payments:[]};ensureHousehold();
- for(const [key,value] of Object.entries(data.overseasLocalStorage||{})){if([LEGACY,LEGACY+'-recovery',LEGACY+'-raw-recovery'].includes(key))localStorage.setItem(key,value)}
+ // 해외주식은 F_USA_private/overseas-ledger.json을 단일 원본으로 사용하므로
+ // combined-backup의 오래된 해외주식 localStorage는 복원하지 않는다.
  for(const [key,value] of Object.entries(data.domesticLocalStorage||{})){if(['domestic-ledger-v1','domestic-ledger-v1-recovery','domestic-ledger-v1-raw-recovery'].includes(key))localStorage.setItem(key,value)}
  const housingSeeded=seedHousingSavings();save();const incomeMigrated=migrateDomesticIncome();const purchasesSeeded=seedDomesticPurchases();reloadLedgers();
  if(!automatic)toast('복원 완료. 해외주식·국내주식 화면도 다시 불러왔습니다.');
