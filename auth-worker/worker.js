@@ -52,6 +52,11 @@ if(!originAllowed(req,env))return json({error:'Origin not allowed'},403,headers)
 if(p==='/auth/logout'&&req.method==='POST')return json({ok:true},200,{...headers,'Set-Cookie':clearCookie('asset_session')});
 const a=await auth(req,env);if(!a)return json({error:'Not authenticated'},401,headers);
 if(p==='/api/me'&&req.method==='GET')return json({login:a.login},200,headers);
+if(p==='/api/overseas'&&req.method==='GET'){
+const path='/repos/'+env.REPO+'/contents/overseas-ledger.json';
+const r=await gh(path,a.token);if(r.status===404)return json({error:'No overseas ledger found'},404,headers);if(!r.ok)return json({error:'GitHub overseas read failed'},r.status,headers);
+const j=await r.json();const b=atob(j.content.replace(/\s/g,''));const bytes=Uint8Array.from(b,c=>c.charCodeAt(0));return new Response(dec.decode(bytes),{status:200,headers:{...headers,'content-type':'application/json','cache-control':'no-store'}});
+}
 if(p==='/api/backup'){
 const path='/repos/'+env.REPO+'/contents/data/combined-backup.json';
 if(req.method==='GET'){
