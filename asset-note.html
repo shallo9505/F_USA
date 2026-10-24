@@ -80,7 +80,7 @@ function classifyMemo(value){
  }
  return{group:'consumption',category:'기타'};
 }
-function hCleanQuickText(value,category){const labels=[category,'구매대행','대납','현금','계좌이체','계좌결제','무통장','송금','신용카드','체크카드','카드결제','카드','계좌/현금'].filter(Boolean).sort((a,b)=>b.length-a.length);let text=String(value||'');for(const label of [...new Set(labels)]){const safe=label.replace(/[.*+?^\x24{}()|[\]\\]/g,'\\function parseQuickExpense(value){');text=text.replace(new RegExp('(^|\\\\s)'+safe+'(?=\\\\s|$)','g'),' ')}return text.replace(/\\s+/g,' ').trim()}
+function hCleanQuickText(value,category){const words=[category,'구매대행','대납','현금','계좌이체','계좌결제','무통장','송금','신용카드','체크카드','카드결제','카드','계좌/현금'];return String(value||'').split(/\s+/).filter(w=>!words.includes(w)).join(' ').trim()}
 function parseQuickExpense(value){
  const raw=String(value||'').trim();
  const dm=raw.match(/(?:^|\s)(?:(\d{4})[-./])?(\d{1,2})[-./](\d{1,2})(?=\s|$)/);
