@@ -427,6 +427,17 @@ function seedDomesticPurchases(){
  }catch(e){console.warn('국내주식 매수 저장 실패',e);return false}
  return true;
 }
+function seedOverseas20261026(){
+ try{
+  const raw=localStorage.getItem(LEGACY);if(!raw)return false;
+  const ledger=JSON.parse(raw);if(!ledger||!Array.isArray(ledger.trades))return false;
+  const trade={id:'trade-20261026-msty-50-690',stockId:'776a54f7-2793-4d19-94ff-55421d1fe83d',side:'buy',accountId:'usd1',date:'2026-10-26',amount:690,qty:50,price:13.8,rate:1324.3};
+  if(ledger.trades.some(x=>x.id===trade.id))return false;
+  ledger.trades.push(trade);
+  localStorage.setItem(LEGACY,JSON.stringify(ledger));
+  return true;
+ }catch(e){console.warn('해외주식 2026-10-26 보정 실패',e);return false}
+}
 function seedOverseas20261023(){
  try{
   const raw=localStorage.getItem(LEGACY);if(!raw)return false;
@@ -558,6 +569,6 @@ function restore(data,{automatic=false}={}){
 $('#importBtn').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{try{const f=e.target.files[0];if(f)restore(JSON.parse(await f.text()))}catch(err){toast('복원 실패: '+err.message)}finally{e.target.value=''}};
 $('#cloudBackup').onclick=async()=>{if(!confirm('현재 브라우저 데이터를 GitHub 비공개 저장소에 저장할까요?'))return;try{const snapshot=bundle(),j=await api('/api/backup',{method:'PUT',body:JSON.stringify(snapshot)});lastRemoteSnapshot=comparable(snapshot);cloudDirty=false;cloudReady=true;$('#status').textContent='GitHub 백업 완료';toast('GitHub 백업 완료 '+(j.updatedAt||''))}catch(e){toast(e.message)}};
 $('#cloudRestore').onclick=async()=>{try{const j=await api('/api/backup');cloudApplying=true;try{restore(j)}finally{cloudApplying=false}let overseas='';try{overseas=await restoreOverseasIfEmpty()}catch(e){$('#authMessage').textContent='해외주식 복원 실패: '+e.message;throw e}cloudReady=true;lastRemoteSnapshot=comparable(j);cloudDirty=false;toast('GitHub 통합 복원 완료'+(overseas==='restored'?' · 해외주식도 복원됨':' · 기존 해외주식 유지'))}catch(e){toast('복원 실패: '+e.message)}};
-if(seedHousingSavings())save();seedOverseas20261023();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&!cloudDirty&&!cloudBusy)autoLoadAfterLogin(cloudLogin)});migrateDomesticIncome();wireLedgerFrame('overseasFrame');wireLedgerFrame('domesticFrame');if(['#korea','#household','#loans'].includes(location.hash)){document.querySelector('[data-main="'+location.hash.slice(1)+'"]').click()}else render();checkAuth();
+if(seedHousingSavings())save();seedOverseas20261023();seedOverseas20261026();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&!cloudDirty&&!cloudBusy)autoLoadAfterLogin(cloudLogin)});migrateDomesticIncome();wireLedgerFrame('overseasFrame');wireLedgerFrame('domesticFrame');if(['#korea','#household','#loans'].includes(location.hash)){document.querySelector('[data-main="'+location.hash.slice(1)+'"]').click()}else render();checkAuth();
 })();
 </script></body></html>
