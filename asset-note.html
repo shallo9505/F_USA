@@ -431,11 +431,22 @@ function seedOverseas20261026(){
  try{
   const raw=localStorage.getItem(LEGACY);if(!raw)return false;
   const ledger=JSON.parse(raw);if(!ledger||!Array.isArray(ledger.trades))return false;
-  const trade={id:'trade-20261026-msty-50-690',stockId:'776a54f7-2793-4d19-94ff-55421d1fe83d',side:'buy',accountId:'usd1',date:'2026-10-26',amount:690,qty:50,price:13.8,rate:1324.3};
-  if(ledger.trades.some(x=>x.id===trade.id))return false;
-  ledger.trades.push(trade);
-  localStorage.setItem(LEGACY,JSON.stringify(ledger));
-  return true;
+  const trades=[
+   {id:'trade-20261026-msty-50-690',stockId:'776a54f7-2793-4d19-94ff-55421d1fe83d',side:'buy',accountId:'usd1',date:'2026-10-26',amount:690,qty:50,price:13.8,rate:1324.3},
+   {id:'trade-20261026-lly-400',stockId:'af566201-7f66-4eab-82b2-0890f1b77f75',side:'buy',accountId:'usd1',date:'2026-10-26',amount:4,qty:0.003113,price:1284.76,rate:1334.93},
+   {id:'trade-20261026-mrk-200',stockId:'d1a204c2-b03e-4524-8932-ad99b379545d',side:'buy',accountId:'usd1',date:'2026-10-26',amount:2,qty:0.013852,price:144.38,rate:1334.93},
+   {id:'trade-20261026-abbv-400',stockId:'f588e294-fc8b-41b7-a3dd-14aad43fbc6e',side:'buy',accountId:'usd1',date:'2026-10-26',amount:4,qty:0.013847,price:288.88,rate:1334.93},
+   {id:'trade-20261026-gldm-500',stockId:'fa5bccf4-882d-4ba9-ba7c-fb7e68756bc1',side:'buy',accountId:'usd1',date:'2026-10-26',amount:5,qty:0.063156,price:79.16,rate:1334.94},
+   {id:'trade-20261026-voo-3200',stockId:'731986c5-82d1-4029-a7e9-576fde9952a1',side:'buy',accountId:'usd1',date:'2026-10-26',amount:32,qty:0.045564,price:702.29,rate:1334.96},
+   {id:'trade-20261026-schd-1900',stockId:'d1ba50d4-0ca3-4756-9819-afb809cedf7d',side:'buy',accountId:'usd1',date:'2026-10-26',amount:19,qty:0.537178,price:35.37,rate:1334.96},
+   {id:'trade-20261026-jepi-1700',stockId:'625f2f4d-84e0-4cf4-8ce6-db1070e610a9',side:'buy',accountId:'usd1',date:'2026-10-26',amount:17,qty:0.297468,price:57.14,rate:1334.96},
+   {id:'trade-20261026-qqqm-3100',stockId:'58d2fd69-f524-4d20-bf9c-0c1956be3ef1',side:'buy',accountId:'usd1',date:'2026-10-26',amount:31,qty:0.106288,price:291.65,rate:1335.06},
+   {id:'trade-20261026-jepq-100',stockId:'45939d85-8999-45eb-9789-921672145c2c',side:'buy',accountId:'usd1',date:'2026-10-26',amount:1,qty:0.017063,price:58.6,rate:1335.06}
+  ];
+  let changed=false;
+  for(const trade of trades)if(!ledger.trades.some(x=>x.id===trade.id)){ledger.trades.push(trade);changed=true}
+  if(changed)localStorage.setItem(LEGACY,JSON.stringify(ledger));
+  return changed;
  }catch(e){console.warn('해외주식 2026-10-26 보정 실패',e);return false}
 }
 function seedOverseas20261023(){
