@@ -461,10 +461,12 @@ function seedOverseas20261029(){
   const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9가-힣]/g,'');
   let changed=false;
   for(const [ticker,amount,qty,price,rate,datetime] of entries){
-   const stock=ledger.stocks.find(x=>x.id===ids[ticker]||norm(x.ticker)===norm(ticker));
-   if(!stock)continue;
-   const account=ledger.accounts.find(a=>a.code==='USD'&&(ticker==='MSTY'?norm(a.label)==='달러':norm(a.label)==='달러3000'));
-   if(!account){console.warn('매수 계정 없음',ticker);continue}
+   let stock=ledger.stocks.find(x=>x.id===ids[ticker]||norm(x.ticker)===norm(ticker)||norm(x.name)===norm(({LLY:'일라이릴리',MRK:'머크',ABBV:'애브비'})[ticker]||ticker));
+   if(!stock){stock={id:ids[ticker],ticker,name:({LLY:'일라이 릴리',MRK:'머크',ABBV:'애브비'})[ticker]||ticker,code:'USD',groupId:''};ledger.stocks.push(stock)}
+   const target=ticker==='MSTY'?'달러':'달러3000';
+   let account=ledger.accounts.find(a=>norm(a.label)===target||norm(a.name)===target);
+   if(!account)account=ledger.accounts.find(a=>a.id===(ticker==='MSTY'?'usd1':'usd3000'));
+   if(!account){account={id:ticker==='MSTY'?'usd1':'usd3000',label:ticker==='MSTY'?'달러':'달러_3000',code:'USD',unit:1};ledger.accounts.push(account)}
    const date=datetime.slice(0,10),id='trade-20261029-'+ticker.toLowerCase()+'-'+Math.round(amount*100);
    if(ledger.trades.some(x=>x.id===id||(x.stockId===stock.id&&x.side==='buy'&&x.date===date&&Math.abs(Number(x.qty)-qty)<1e-8&&Math.abs(Number(x.amount)-amount)<0.011)))continue;
    ledger.trades.push({id,stockId:stock.id,side:'buy',accountId:account.id,date,amount,qty,price,rate,memo:'토스증권 구매완료 '+datetime.slice(11)});
