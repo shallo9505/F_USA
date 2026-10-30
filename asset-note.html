@@ -585,15 +585,10 @@ function seedOverseas20261023(){
 }
 function overseasRecordCount(d){return ['stocks','trades','exchanges','incomes','incomeItems'].reduce((n,k)=>n+(Array.isArray(d?.[k])?d[k].length:0),0)}
 async function restoreOverseasIfEmpty(){
- let local=null;
- try{local=JSON.parse(localStorage.getItem(LEGACY)||'null')}catch(e){}
- // Never replace a device's existing overseas holdings with remote data.
- if(overseasRecordCount(local)>0)return 'existing';
+ let local=null;try{local=JSON.parse(localStorage.getItem(LEGACY)||'null')}catch(e){}
  let remote=null;
  try{const envelope=await api('/api/overseas');remote=envelope?.format==='overseas-ledger'?envelope.data:envelope}
  catch(e){
-  // Deployed OAuth Workers may not yet expose /api/overseas. Fall back to the
-  // fully populated overseas snapshot in the existing combined backup endpoint.
   const combined=await api('/api/backup');
   const stored=combined?.overseasLocalStorage?.[LEGACY];
   if(!stored)throw Error('해외주식 복원 가능한 백업이 없습니다: '+e.message);
@@ -601,6 +596,12 @@ async function restoreOverseasIfEmpty(){
  }
  if(!remote||!Array.isArray(remote.accounts)||!Array.isArray(remote.stocks)||!Array.isArray(remote.trades)||!Array.isArray(remote.exchanges)||!Array.isArray(remote.incomes))throw Error('해외주식 원격 장부 형식이 올바르지 않습니다.');
  if(!overseasRecordCount(remote))throw Error('해외주식 비공개 백업이 비어 있습니다.');
+ if(JSON.stringify(local)===JSON.stringify(remote))return 'existing';
+ // Preserve each device's prior ledger before replacing it with the shared cloud source.
+ if(local&&overseasRecordCount(local)>0){
+  const backupKey=LEGACY+'-before-cloud-restore-'+new Date().toISOString().replace(/[:.]/g,'-');
+  localStorage.setItem(backupKey,JSON.stringify(local));
+ }
  localStorage.setItem(LEGACY,JSON.stringify(remote));
  const frame=$('#overseasFrame');if(frame)frame.contentWindow?.location.reload();
  return 'restored';
