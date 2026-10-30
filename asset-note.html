@@ -585,6 +585,7 @@ function seedOverseas20261023(){
 }
 function overseasRecordCount(d){return ['stocks','trades','exchanges','incomes','incomeItems'].reduce((n,k)=>n+(Array.isArray(d?.[k])?d[k].length:0),0)}
 async function restoreOverseasIfEmpty(){
+ if(sessionStorage.getItem('asset-note-manual-overseas-import')==='1')return 'manual-import';
  let local=null;try{local=JSON.parse(localStorage.getItem(LEGACY)||'null')}catch(e){}
  let remote=null;
  try{const envelope=await api('/api/overseas');remote=envelope?.format==='overseas-ledger'?envelope.data:envelope}
@@ -683,14 +684,23 @@ function restore(data,{automatic=false}={}){
  for(const key of Object.keys(DEFAULT.household))if(!Array.isArray(data.household[key]))throw Error('가계부 백업 검증 실패');
  if(!automatic&&!confirm('현재 국내주식·가계부와 포함된 해외주식 로컬 데이터를 덮어쓸까요?'))return;
  db.korea=data.korea;db.household=data.household;db.loans=(data.loans&&Array.isArray(data.loans.items)&&Array.isArray(data.loans.payments))?data.loans:{items:[],payments:[]};ensureHousehold();
- // 해외주식은 F_USA_private/overseas-ledger.json을 단일 원본으로 사용하므로
- // combined-backup의 오래된 해외주식 localStorage는 복원하지 않는다.
+ // Manual JSON import must restore its overseas ledger as well.
+ // Preserve the old PC data for recovery, and keep imported data ahead of remote auto-sync.
+ const importedOverseas=data.overseasLocalStorage?.[LEGACY];
+ if(!automatic&&importedOverseas){
+  const parsed=JSON.parse(importedOverseas);
+  if(!Array.isArray(parsed.accounts)||!Array.isArray(parsed.stocks)||!Array.isArray(parsed.trades)||!Array.isArray(parsed.exchanges)||!Array.isArray(parsed.incomes))throw Error('해외주식 백업 검증 실패');
+  const previous=localStorage.getItem(LEGACY);
+  if(previous)localStorage.setItem(LEGACY+'-before-manual-import-'+Date.now(),previous);
+  localStorage.setItem(LEGACY,importedOverseas);
+  sessionStorage.setItem('asset-note-manual-overseas-import','1');
+ }
  for(const [key,value] of Object.entries(data.domesticLocalStorage||{})){if(['domestic-ledger-v1','domestic-ledger-v1-recovery','domestic-ledger-v1-raw-recovery'].includes(key))localStorage.setItem(key,value)}
- const housingSeeded=seedHousingSavings();save();const incomeMigrated=migrateDomesticIncome();const purchasesSeeded=seedDomesticPurchases();const overseasSeeded=normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty();reloadLedgers();
+ const housingSeeded=seedHousingSavings();save();const incomeMigrated=migrateDomesticIncome();const purchasesSeeded=seedDomesticPurchases();const overseasSeeded=automatic?(normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty()):false;reloadLedgers();
  if(!automatic)toast('복원 완료. 해외주식·국내주식 화면도 다시 불러왔습니다.');
  return incomeMigrated||purchasesSeeded||housingSeeded||overseasSeeded;
 }
-$('#importBtn').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{try{const f=e.target.files[0];if(f)restore(JSON.parse(await f.text()))}catch(err){toast('복원 실패: '+err.message)}finally{e.target.value=''}};
+$('#importBtn').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{try{const f=e.target.files[0];if(f){restore(JSON.parse(await f.text()));toast('파일 복원 완료. 해외주식 포함. GitHub 전체 백업을 눌러 원격에도 저장하세요.')}}catch(err){toast('복원 실패: '+err.message)}finally{e.target.value=''}};
 $('#cloudBackup').onclick=async()=>{if(!confirm('현재 브라우저 데이터를 GitHub 비공개 저장소에 저장할까요?'))return;try{const snapshot=bundle(),j=await api('/api/backup',{method:'PUT',body:JSON.stringify(snapshot)});lastRemoteSnapshot=comparable(snapshot);cloudDirty=false;cloudReady=true;$('#status').textContent='GitHub 백업 완료';toast('GitHub 백업 완료 '+(j.updatedAt||''))}catch(e){toast(e.message)}};
 $('#cloudRestore').onclick=async()=>{try{const j=await api('/api/backup');cloudApplying=true;try{restore(j)}finally{cloudApplying=false}let overseas='';try{overseas=await restoreOverseasIfEmpty()}catch(e){$('#authMessage').textContent='해외주식 복원 실패: '+e.message;throw e}cloudReady=true;lastRemoteSnapshot=comparable(j);cloudDirty=false;toast('GitHub 통합 복원 완료'+(overseas==='restored'?' · 해외주식도 복원됨':' · 기존 해외주식 유지'))}catch(e){toast('복원 실패: '+e.message)}};
 if(seedHousingSavings())save();seedOverseas20261023();seedOverseas20261026();seedOverseas20261027();seedOverseas20261028();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&!cloudDirty&&!cloudBusy)autoLoadAfterLogin(cloudLogin)});migrateDomesticIncome();wireLedgerFrame('overseasFrame');wireLedgerFrame('domesticFrame');if(['#korea','#household','#loans'].includes(location.hash)){document.querySelector('[data-main="'+location.hash.slice(1)+'"]').click()}else render();checkAuth();
