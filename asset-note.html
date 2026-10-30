@@ -428,6 +428,26 @@ function seedDomesticPurchases(){
  }catch(e){console.warn('국내주식 매수 저장 실패',e);return false}
  return true;
 }
+function normalizeOverseasAccounts(){
+ try{
+  const raw=localStorage.getItem(LEGACY);if(!raw)return false;
+  const d=JSON.parse(raw);if(!Array.isArray(d.accounts)||!Array.isArray(d.trades))return false;
+  const norm=s=>String(s||'').replace(/[\\s_-]/g,'').toLowerCase();
+  const old=d.accounts.filter(a=>a.code==='USD'&&['달러엄마','달러3000'].includes(norm(a.label)));
+  if(!old.length)return false;
+  const primary=old.find(a=>norm(a.label)==='달러3000')||old[0];
+  let changed=false;
+  if(primary.label!=='달러_3000'){primary.label='달러_3000';changed=true}
+  for(const a of old){if(a.id===primary.id)continue;
+   for(const t of d.trades)if(t.accountId===a.id){t.accountId=primary.id;changed=true}
+   for(const e of d.exchanges||[])if(e.accountId===a.id){e.accountId=primary.id;changed=true}
+   for(const e of d.incomes||[])if(e.accountId===a.id){e.accountId=primary.id;changed=true}
+   d.accounts=d.accounts.filter(x=>x.id!==a.id);changed=true;
+  }
+  if(changed)localStorage.setItem(LEGACY,JSON.stringify(d));
+  return changed;
+ }catch(e){console.warn('계정 이름 통합 실패',e);return false}
+}
 function seedOverseas20261030Msty(){
  try{
   const raw=localStorage.getItem(LEGACY);if(!raw)return false;
@@ -626,7 +646,7 @@ async function autoLoadAfterLogin(login){
   lastRemoteSnapshot=comparable(remote);cloudReady=true;cloudDirty=false;let overseasSync='';try{overseasSync=await restoreOverseasIfEmpty()}catch(err){overseasSync='error';console.warn('해외주식 별도 복원 실패:',err);$('#authMessage').textContent='해외주식 복원 실패: '+err.message}if(applyFixedMonth(hSelectedMonth))render();
   $('#status').textContent='GitHub 최신 백업 동기화 완료';
   if(migrated||seeded||housingSeeded)scheduleCloudSave();
-  const newTrades=seedOverseas20261029()|seedOverseas20261030Msty();if(newTrades){reloadLedgers();scheduleCloudSave();}
+  const newTrades=normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty();if(newTrades){reloadLedgers();scheduleCloudSave();}
   if(overseasSync!=='error')$('#authMessage').textContent='GitHub 연결됨: '+login+' · 통합 백업 동기화'+(overseasSync==='restored'?' · 해외주식 별도 복원 완료':'')+' · 변경 시 자동 저장';
  }catch(e){
   if(/404|No backup found/.test(e.message)){
@@ -665,7 +685,7 @@ function restore(data,{automatic=false}={}){
  // 해외주식은 F_USA_private/overseas-ledger.json을 단일 원본으로 사용하므로
  // combined-backup의 오래된 해외주식 localStorage는 복원하지 않는다.
  for(const [key,value] of Object.entries(data.domesticLocalStorage||{})){if(['domestic-ledger-v1','domestic-ledger-v1-recovery','domestic-ledger-v1-raw-recovery'].includes(key))localStorage.setItem(key,value)}
- const housingSeeded=seedHousingSavings();save();const incomeMigrated=migrateDomesticIncome();const purchasesSeeded=seedDomesticPurchases();const overseasSeeded=seedOverseas20261029()|seedOverseas20261030Msty();reloadLedgers();
+ const housingSeeded=seedHousingSavings();save();const incomeMigrated=migrateDomesticIncome();const purchasesSeeded=seedDomesticPurchases();const overseasSeeded=normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty();reloadLedgers();
  if(!automatic)toast('복원 완료. 해외주식·국내주식 화면도 다시 불러왔습니다.');
  return incomeMigrated||purchasesSeeded||housingSeeded||overseasSeeded;
 }
