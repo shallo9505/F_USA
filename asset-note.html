@@ -448,6 +448,37 @@ function normalizeOverseasAccounts(){
   return changed;
  }catch(e){console.warn('계정 이름 통합 실패',e);return false}
 }
+function seedOverseas20261102Events(){
+ try{
+  const raw=localStorage.getItem(LEGACY);if(!raw)return false;
+  const d=JSON.parse(raw);
+  if(!Array.isArray(d.trades)||!Array.isArray(d.incomes)||!Array.isArray(d.accounts)||!Array.isArray(d.stocks)||!Array.isArray(d.incomeItems))return false;
+  const strc=d.stocks.find(s=>String(s.ticker||'').toUpperCase()==='STRC');
+  const msty=d.stocks.find(s=>String(s.ticker||'').toUpperCase()==='MSTY');
+  const usd=d.accounts.find(a=>a.code==='USD'&&a.label==='달러');
+  if(!strc||!msty||!usd)return false;
+  let changed=false;
+  const strcSaleExists=d.trades.some(t=>t.stockId===strc.id&&t.side==='sell'&&t.date==='2026-11-02'&&Math.abs(Number(t.qty)-1)<0.000001);
+  if(!strcSaleExists){
+   const purchase=d.trades.find(t=>t.stockId===strc.id&&t.side==='buy'&&Math.abs(Number(t.qty)-1)<0.000001);
+   d.trades.push({id:'trade-20261102-strc-sell-1',stockId:strc.id,side:'sell',accountId:purchase?.accountId||usd.id,date:'2026-11-02',qty:1,price:99,amount:98.81,rate:Number(purchase?.rate)||1,memo:'총매도 $99.00 · 수수료 $0.18 · 제세금 $0.01 · 실수령 $98.81 · 최종실현손익 $0.77 (매입 $98.04). 환율은 기존 매수기록 기준'});
+   changed=true;
+  }
+  const entries=[
+   {stock:msty,date:'2026-10-30',gross:24.78,tax:3.72,qty:152,perShare:0.16,id:'income-20261030-msty-2478'},
+   {stock:strc,date:'2026-11-02',gross:0.03,tax:0,qty:1,perShare:0.03,id:'income-20261102-strc-003'}
+  ];
+  for(const x of entries){
+   if(d.incomes.some(i=>i.stockId===x.stock.id&&i.kind==='dividend'&&i.date===x.date&&Math.abs(Number(i.gross)-x.gross)<0.011))continue;
+   const item=d.incomeItems.find(i=>i.stockId===x.stock.id&&i.kind==='dividend');
+   if(!item)continue;
+   d.incomes.push({id:x.id,itemId:item.id,kind:'dividend',date:x.date,accountId:usd.id,gross:x.gross,tax:x.tax,qty:x.qty,perShare:x.perShare,stockId:x.stock.id,memo:'토스증권 입금내역 기준'});
+   changed=true;
+  }
+  if(changed)localStorage.setItem(LEGACY,JSON.stringify(d));
+  return changed;
+ }catch(e){console.warn('2026-11-02 해외주식 거래/배당 반영 실패',e);return false}
+}
 function seedOverseas20261030Msty(){
  try{
   const raw=localStorage.getItem(LEGACY);if(!raw)return false;
@@ -648,7 +679,7 @@ async function autoLoadAfterLogin(login){
   lastRemoteSnapshot=comparable(remote);cloudReady=true;cloudDirty=false;let overseasSync='';try{overseasSync=await restoreOverseasIfEmpty()}catch(err){overseasSync='error';console.warn('해외주식 별도 복원 실패:',err);$('#authMessage').textContent='해외주식 복원 실패: '+err.message}if(applyFixedMonth(hSelectedMonth))render();
   $('#status').textContent='GitHub 최신 백업 동기화 완료';
   if(migrated||seeded||housingSeeded)scheduleCloudSave();
-  const newTrades=normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty();if(newTrades){reloadLedgers();scheduleCloudSave();}
+  const newTrades=normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty()|seedOverseas20261102Events();if(newTrades){reloadLedgers();scheduleCloudSave();}
   if(overseasSync!=='error')$('#authMessage').textContent='GitHub 연결됨: '+login+' · 통합 백업 동기화'+(overseasSync==='restored'?' · 해외주식 별도 복원 완료':'')+' · 변경 시 자동 저장';
  }catch(e){
   if(/404|No backup found/.test(e.message)){
