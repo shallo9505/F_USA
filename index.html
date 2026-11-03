@@ -647,7 +647,7 @@ function connectFromForm(){
 }
 function initializeGitSync(){
  gitSync=new GitLedgerSync({getData:()=>data,canApply:()=>!editor&&!backup&&!dragState,
-  applyData:value=>{rememberRecovery(data,'이 기기 교체 전');data=validate(value);undo=null;expanded=new Set();incomeExpanded=new Set();persist(false);toast='GitHub의 최신 기록을 불러왔습니다.';render();},
+  applyData:value=>{rememberRecovery(data,'이 기기 교체 전');const remote=validate(value);const pending=data.trades.filter(t=>/^trade-20261030-(?:jepq|qqqm|jepi|schd|voo|gldm|abbv|mrk|lly)-|^trade-2026110[23]-(?:jepq|qqqm|jepi|schd|voo|gldm|abbv|mrk|lly)-/.test(t.id));let merged=0;for(const t of pending){if(!remote.stocks.some(s=>s.id===t.stockId)||!remote.accounts.some(a=>a.id===t.accountId))continue;if(remote.trades.some(x=>x.id===t.id||(x.stockId===t.stockId&&x.side===t.side&&x.date===t.date&&Math.abs(Number(x.qty)-Number(t.qty))<1e-8)))continue;remote.trades.push(t);merged++;}data=validate(remote);undo=null;expanded=new Set();incomeExpanded=new Set();persist(false);toast=merged?'GitHub 복원 후 누락된 10/30·11/2~3 매수 '+merged+'건 유지':'GitHub의 최신 기록을 불러왔습니다.';render();if(merged)queueMicrotask(()=>{gitSync?.changed();});},
   recover:rememberRecovery,recoverRaw:rememberRawRecovery,loadBase:readCachedBase,
   saveBase:value=>{try{localStorage.setItem(BASE_KEY,JSON.stringify(value));}catch{storage=false;}},
   connected:(config,token)=>{syncDraft=config;try{localStorage.setItem(CONFIG_KEY,JSON.stringify(config));}catch{}try{sessionStorage.setItem(SESSION_KEY,JSON.stringify({target:gitTarget(config),token}));}catch{}},
