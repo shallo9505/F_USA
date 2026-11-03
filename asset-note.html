@@ -492,6 +492,39 @@ function seedOverseas20261030Msty(){
   ledger.trades.push(trade);localStorage.setItem(LEGACY,JSON.stringify(ledger));return true;
  }catch(e){console.warn('2026-10-30 MSTY 매수 반영 실패',e);return false}
 }
+function seedOverseas20261102Dca(){
+ try{
+  const raw=localStorage.getItem(LEGACY);if(!raw)return false;
+  const d=JSON.parse(raw);
+  if(!Array.isArray(d.trades)||!Array.isArray(d.stocks)||!Array.isArray(d.accounts))return false;
+  const entries=[
+   ['JEPQ','2026-11-03',0.9999,0.017442,57.32,1352.58,'00:08'],
+   ['QQQM','2026-11-02',30.99,0.108346,286.11,1352.58,'23:58'],
+   ['JEPI','2026-11-03',16.99,0.295144,57.59,1352.30,'00:10'],
+   ['SCHD','2026-11-03',18.99,0.528438,35.95,1352.30,'00:03'],
+   ['VOO','2026-11-03',31.99,0.045783,698.93,1352.30,'00:01'],
+   ['GLDM','2026-11-03',4.99,0.063841,78.31,1351.90,'00:16'],
+   ['MRK','2026-11-03',1.99,0.013571,147.37,1351.83,'00:15'],
+   ['LLY','2026-11-03',3.99,0.002852,1402.16,1351.83,'00:13'],
+   ['ABBV','2026-11-03',3.99,0.013885,288.06,1351.83,'00:19']
+  ];
+  const aliases={ABBV:'애브비',MRK:'머크',LLY:'일라이릴리'};
+  const norm=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9가-힣]/g,'');
+  const account=d.accounts.find(a=>a.code==='USD'&&norm(a.label)==='달러3000');
+  if(!account)return false;
+  let changed=false;
+  for(const [ticker,date,amount,qty,price,rate,time] of entries){
+   const stock=d.stocks.find(s=>norm(s.ticker)===ticker||norm(s.name)===norm(aliases[ticker]||ticker));
+   if(!stock)continue;
+   const id='trade-'+date.replace(/-/g,'')+'-'+ticker.toLowerCase()+'-'+String(amount).replace('.','p');
+   if(d.trades.some(t=>t.id===id||(t.stockId===stock.id&&t.side==='buy'&&t.date===date&&Math.abs(Number(t.qty)-qty)<0.00000001&&Math.abs(Number(t.amount)-amount)<0.011)))continue;
+   d.trades.push({id,stockId:stock.id,side:'buy',accountId:account.id,date,amount,qty,price,rate,memo:'토스증권 주식모으기 구매완료 '+time+' · 출금예정 2026-11-04'});
+   changed=true;
+  }
+  if(changed)localStorage.setItem(LEGACY,JSON.stringify(d));
+  return changed;
+ }catch(e){console.warn('2026-11-02~03 해외주식 매수 반영 실패',e);return false}
+}
 function seedOverseas20261030Dca(){
  try{
   const raw=localStorage.getItem(LEGACY);if(!raw)return false;
@@ -712,7 +745,7 @@ async function autoLoadAfterLogin(login){
   lastRemoteSnapshot=comparable(remote);cloudReady=true;cloudDirty=false;let overseasSync='';try{overseasSync=await restoreOverseasIfEmpty()}catch(err){overseasSync='error';console.warn('해외주식 별도 복원 실패:',err);$('#authMessage').textContent='해외주식 복원 실패: '+err.message}if(applyFixedMonth(hSelectedMonth))render();
   $('#status').textContent='GitHub 최신 백업 동기화 완료';
   if(migrated||seeded||housingSeeded)scheduleCloudSave();
-  const newTrades=normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty()|seedOverseas20261030Dca()|seedOverseas20261102Events();if(newTrades){reloadLedgers();scheduleCloudSave();}
+  const newTrades=normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty()|seedOverseas20261030Dca()|seedOverseas20261102Dca()|seedOverseas20261102Events();if(newTrades){reloadLedgers();scheduleCloudSave();}
   if(overseasSync!=='error')$('#authMessage').textContent='GitHub 연결됨: '+login+' · 통합 백업 동기화'+(overseasSync==='restored'?' · 해외주식 별도 복원 완료':'')+' · 변경 시 자동 저장';
  }catch(e){
   if(/404|No backup found/.test(e.message)){
