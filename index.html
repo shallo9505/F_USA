@@ -584,24 +584,49 @@ function renderAccounts(){
 }
 function persist(notify=true){try{localStorage.setItem(KEY,JSON.stringify(data));storage=true;}catch(e){storage=false;toast='기기 저장이 제한되어 현재 화면에만 반영했습니다. 데이터 백업을 이용해 주세요.';}if(notify&&gitSync)gitSync.changed();}
 function reconcileMissingPurchases(d){
- const rows=[
- ['2026-10-30','JEPQ',.9999,.017208,58.10,1344.31],['2026-10-30','QQQM',30.99,.108044,286.91,1344.31],['2026-10-30','JEPI',16.99,.293971,57.82,1343.98],['2026-10-30','SCHD',18.99,.528514,35.94,1343.98],['2026-10-30','VOO',31.99,.045769,699.15,1343.98],['2026-10-30','GLDM',4.99,.064678,77.30,1343.96],['2026-10-30','ABBV',3.99,.013496,296.37,1343.88],['2026-10-30','MRK',1.99,.013361,149.68,1343.88],['2026-10-30','LLY',3.99,.002779,1433.64,1343.88],
- ['2026-11-03','JEPQ',.9999,.017442,57.32,1352.58],['2026-11-02','QQQM',30.99,.108346,286.11,1352.58],['2026-11-03','JEPI',16.99,.295144,57.59,1352.30],['2026-11-03','SCHD',18.99,.528438,35.95,1352.30],['2026-11-03','VOO',31.99,.045783,698.93,1352.30],['2026-11-03','GLDM',4.99,.063841,78.31,1351.90],['2026-11-03','MRK',1.99,.013571,147.37,1351.83],['2026-11-03','LLY',3.99,.002852,1402.16,1351.83],['2026-11-03','ABBV',3.99,.013885,288.06,1351.83]
- ];
- const norm=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9가-힣]/g,'');
- const aliases={ABBV:'애브비',MRK:'머크',LLY:'일라이릴리'};
- let added=0;
- const account=d.accounts.find(a=>a.code==='USD'&&norm(a.label)==='달러3000');
- if(!account)return 0;
- for(const [date,ticker,amount,qty,price,rate] of rows){
-  let stock=d.stocks.find(s=>norm(s.ticker)===ticker||norm(s.name)===norm(aliases[ticker]||ticker));
-  if(!stock){stock={id:'restored-stock-'+ticker.toLowerCase(),ticker,name:aliases[ticker]||ticker,code:'USD',groupId:''};if(d.stocks.some(s=>s.id===stock.id))continue;d.stocks.push(stock);}
-  const id='restored-'+date.replace(/-/g,'')+'-'+ticker.toLowerCase();
-  if(d.trades.some(t=>t.id===id||(t.stockId===stock.id&&t.side==='buy'&&t.date===date&&Math.abs(Number(t.qty)-qty)<1e-7&&Math.abs(Number(t.amount)-amount)<.02)))continue;
-  d.trades.push({id,stockId:stock.id,accountId:account.id,side:'buy',date,amount,qty,price,rate,memo:'토스증권 매수내역 복원 · 2026-11-03 요청'});
-  added++;
+ // Repair the wrong duplicate-stock IDs from the 2026-11-03 importer without touching unrelated historical lots.
+ const symbols=['VOO','QQQM','SCHD','JEPQ','JEPI','GLDM','ABBV','MRK','LLY'];
+ const ticker=s=>String(s||'').toUpperCase();
+ const primaries={};
+ for(const sym of symbols){
+  primaries[sym]=d.stocks.find(s=>!String(s.id).startsWith('restored-stock-')&&(ticker(s.ticker)===sym||ticker(s.ticker).startsWith(sym+' ')||ticker(s.ticker).startsWith(sym+'/')));
  }
- return added;
+ const targetAccount=d.accounts.find(a=>a.code==='USD'&&a.label==='달러_3000');
+ const mstyAccount=d.accounts.find(a=>a.code==='USD'&&a.label==='달러');
+ if(!targetAccount||symbols.some(sym=>!primaries[sym]))return 0;
+ let changed=0;
+ // First migrate phantom stocks' transactions to the original stock objects.
+ for(const t of d.trades){
+  const phantom=d.stocks.find(s=>s.id===t.stockId&&String(s.id).startsWith('restored-stock-'));
+  if(!phantom)continue;
+  const sym=ticker(phantom.ticker);
+  if(!primaries[sym])continue;
+  t.stockId=primaries[sym].id;
+  changed++;
+ }
+ const row=[
+  ['2026-10-30','JEPQ',.9999,.017208,58.10,1344.31],['2026-10-30','QQQM',30.99,.108044,286.91,1344.31],['2026-10-30','JEPI',16.99,.293971,57.82,1343.98],['2026-10-30','SCHD',18.99,.528514,35.94,1343.98],['2026-10-30','VOO',31.99,.045769,699.15,1343.98],['2026-10-30','GLDM',4.99,.064678,77.30,1343.96],['2026-10-30','ABBV',3.99,.013496,296.37,1343.88],['2026-10-30','MRK',1.99,.013361,149.68,1343.88],['2026-10-30','LLY',3.99,.002779,1433.64,1343.88],
+  ['2026-11-03','JEPQ',.9999,.017442,57.32,1352.58],['2026-11-02','QQQM',30.99,.108346,286.11,1352.58],['2026-11-03','JEPI',16.99,.295144,57.59,1352.30],['2026-11-03','SCHD',18.99,.528438,35.95,1352.30],['2026-11-03','VOO',31.99,.045783,698.93,1352.30],['2026-11-03','GLDM',4.99,.063841,78.31,1351.90],['2026-11-03','MRK',1.99,.013571,147.37,1351.83],['2026-11-03','LLY',3.99,.002852,1402.16,1351.83],['2026-11-03','ABBV',3.99,.013885,288.06,1351.83]
+ ];
+ // A valid transaction is determined by original stock, date, quantity and amount; never create a second phantom stock.
+ for(const [date,sym,amount,qty,price,rate] of row){
+  const stockId=primaries[sym].id;
+  if(d.trades.some(t=>t.stockId===stockId&&t.side==='buy'&&t.date===date&&Math.abs(Number(t.qty)-qty)<1e-7&&Math.abs(Number(t.amount)-amount)<.02))continue;
+  d.trades.push({id:'fixed-'+date.replace(/-/g,'')+'-'+sym.toLowerCase(),stockId,side:'buy',accountId:targetAccount.id,date,amount,qty,price,rate,memo:'토스증권 체결내역 확인 · 누락 매수 복구'});
+  changed++;
+ }
+ // The 20-share MSTY fill belongs to the personal dollar account.
+ const msty=d.stocks.find(s=>ticker(s.ticker)==='MSTY');
+ if(msty&&mstyAccount){
+  const entry=d.trades.find(t=>t.stockId===msty.id&&t.side==='buy'&&t.date==='2026-10-30'&&Math.abs(Number(t.qty)-20)<1e-8&&Math.abs(Number(t.amount)-263)<.02);
+  if(entry&&entry.accountId!==mstyAccount.id){entry.accountId=mstyAccount.id;changed++;}
+ }
+ // Remove only phantom stock objects after all their transactions have been relinked.
+ const used=new Set(d.trades.map(t=>t.stockId));
+ const before=d.stocks.length;
+ d.stocks=d.stocks.filter(s=>!String(s.id).startsWith('restored-stock-')||used.has(s.id));
+ changed+=before-d.stocks.length;
+ return changed;
 }
 function render(){
  const t=totals(data),neg=data.accounts.filter(a=>accountTotals(data,a.id).balance<0);
@@ -667,7 +692,16 @@ function connectFromForm(){
 }
 function initializeGitSync(){
  gitSync=new GitLedgerSync({getData:()=>data,canApply:()=>!editor&&!backup&&!dragState,
-  applyData:value=>{rememberRecovery(data,'이 기기 교체 전');const restoredInput=validate(value);const repaired=reconcileMissingPurchases(restoredInput);value=restoredInput;const remote=validate(value);const pending=data.trades.filter(t=>/^trade-20261030-(?:jepq|qqqm|jepi|schd|voo|gldm|abbv|mrk|lly)-|^trade-2026110[23]-(?:jepq|qqqm|jepi|schd|voo|gldm|abbv|mrk|lly)-/.test(t.id));let merged=0;for(const t of pending){if(!remote.stocks.some(s=>s.id===t.stockId)||!remote.accounts.some(a=>a.id===t.accountId))continue;if(remote.trades.some(x=>x.id===t.id||(x.stockId===t.stockId&&x.side===t.side&&x.date===t.date&&Math.abs(Number(x.qty)-Number(t.qty))<1e-8)))continue;remote.trades.push(t);merged++;}data=validate(remote);undo=null;expanded=new Set();incomeExpanded=new Set();persist(false);toast=merged?'GitHub 복원 후 누락된 10/30·11/2~3 매수 '+merged+'건 유지':'GitHub의 최신 기록을 불러왔습니다.';render();if(merged||repaired)queueMicrotask(()=>{gitSync?.changed();gitSync?.refresh?.();});},
+  applyData:value=>{
+   rememberRecovery(data,'GitHub 동기화 이전');
+   const remote=validate(value);
+   const repaired=reconcileMissingPurchases(remote);
+   data=validate(remote);
+   undo=null;expanded=new Set();incomeExpanded=new Set();persist(false);
+   toast=repaired?'GitHub 장부의 잘못된 종목 연결 수정 '+repaired+'건':'GitHub의 최신 기록을 불러왔습니다.';
+   render();
+   if(repaired)queueMicrotask(()=>gitSync?.changed());
+  },
   recover:rememberRecovery,recoverRaw:rememberRawRecovery,loadBase:readCachedBase,
   saveBase:value=>{try{localStorage.setItem(BASE_KEY,JSON.stringify(value));}catch{storage=false;}},
   connected:(config,token)=>{syncDraft=config;try{localStorage.setItem(CONFIG_KEY,JSON.stringify(config));}catch{}try{sessionStorage.setItem(SESSION_KEY,JSON.stringify({target:gitTarget(config),token}));}catch{}},
@@ -872,7 +906,7 @@ root.addEventListener('keydown',e=>{
 });
 window.addEventListener('blur',()=>{if(dragState)endDrag(false);});
 
-const repairedOnOpen=reconcileMissingPurchases(data);if(repairedOnOpen){persist(false);toast='누락 매수 '+repairedOnOpen+'건 복원됨';render();}
+const repairedOnOpen=reconcileMissingPurchases(data);if(repairedOnOpen){persist(false);toast='잘못 연결된 거래 및 누락 매수 '+repairedOnOpen+'건 수정';render();}
 initializeGitSync();
 
 })();
