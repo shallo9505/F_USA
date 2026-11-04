@@ -596,6 +596,19 @@ function reconcileJepqDividend20261104(d){
  d.incomes.push({id,itemId:item.id,kind:'dividend',date:'2026-11-04',accountId:account.id,gross:28.50,tax:4.27,qty:null,perShare:null,stockId:stock.id,memo:'토스증권 외화배당금 입금 14:06 · 실입금 $24.23 · 수수료 $0'});
  return 1;
 }
+function reconcileJepiDividend20261104(d){
+ // Verified Toss dividend; never alter other records or create new stock/account IDs.
+ if(!Array.isArray(d.incomes)||!Array.isArray(d.incomeItems)||!Array.isArray(d.accounts)||!Array.isArray(d.stocks))return 0;
+ const usd=d.accounts.find(a=>a.code==='USD'&&a.label==='달러');
+ const stock=d.stocks.find(s=>String(s.ticker||'').toUpperCase().startsWith('JEPI ')||String(s.ticker||'').toUpperCase()==='JEPI');
+ if(!usd||!stock)return 0;
+ const item=d.incomeItems.find(i=>i.kind==='dividend'&&i.stockId===stock.id&&i.code==='USD');
+ if(!item)return 0;
+ if(d.incomes.some(x=>x.kind==='dividend'&&x.date==='2026-11-04'&&(x.itemId===item.id||x.stockId===stock.id)&&Math.abs(Number(x.gross)-0.62)<0.005))return 0;
+ if(d.incomes.some(x=>x.id==='income-20261104-jepi-062'))return 0;
+ d.incomes.push({id:'income-20261104-jepi-062',itemId:item.id,kind:'dividend',date:'2026-11-04',accountId:usd.id,gross:0.62,tax:0.09,qty:1.779122,perShare:0.34,stockId:stock.id,memo:'토스증권 배당 지급일 2026-11-04 · 세후 $0.53 · 기준일 2026-11-02'});
+ return 1;
+}
 function reconcileMissingPurchases(d){
  // Repair the wrong duplicate-stock IDs from the 2026-11-03 importer without touching unrelated historical lots.
  const symbols=['VOO','QQQM','SCHD','JEPQ','JEPI','GLDM','ABBV','MRK','LLY'];
@@ -718,12 +731,12 @@ function initializeGitSync(){
   applyData:value=>{
    rememberRecovery(data,'GitHub 동기화 이전');
    const remote=validate(value);
-   const repaired=reconcileMissingPurchases(remote);const dividendAdded=reconcileJepqDividend20261104(remote);
+   const repaired=reconcileMissingPurchases(remote);const dividendAdded=reconcileJepqDividend20261104(remote);const jepiAdded=reconcileJepiDividend20261104(remote);
    data=validate(remote);
    undo=null;expanded=new Set();incomeExpanded=new Set();persist(false);
    toast=repaired?'GitHub 장부의 잘못된 종목 연결 수정 '+repaired+'건':'GitHub의 최신 기록을 불러왔습니다.';
    render();
-   if(repaired||dividendAdded)queueMicrotask(()=>gitSync?.changed());
+   if(repaired||dividendAdded||jepiAdded)queueMicrotask(()=>gitSync?.changed());
   },
   recover:rememberRecovery,recoverRaw:rememberRawRecovery,loadBase:readCachedBase,
   saveBase:value=>{try{localStorage.setItem(BASE_KEY,JSON.stringify(value));}catch{storage=false;}},
@@ -929,7 +942,7 @@ root.addEventListener('keydown',e=>{
 });
 window.addEventListener('blur',()=>{if(dragState)endDrag(false);});
 
-const repairedOnOpen=reconcileMissingPurchases(data);const dividendAddedOnOpen=reconcileJepqDividend20261104(data);if(repairedOnOpen||dividendAddedOnOpen){persist(false);toast=dividendAddedOnOpen?'JEPQ 배당금 $24.23를 달러 계정에 반영했습니다.':'누락 매수 내역 수정';render();}
+const repairedOnOpen=reconcileMissingPurchases(data);const dividendAddedOnOpen=reconcileJepqDividend20261104(data);const jepiAddedOnOpen=reconcileJepiDividend20261104(data);if(repairedOnOpen||dividendAddedOnOpen||jepiAddedOnOpen){persist(false);toast=jepiAddedOnOpen?'JEPI 배당금 $0.53를 달러 계정에 반영했습니다.':dividendAddedOnOpen?'JEPQ 배당금 $24.23를 달러 계정에 반영했습니다.':'누락 매수 내역 수정';render();}
 initializeGitSync();
 
 })();
