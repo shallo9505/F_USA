@@ -682,7 +682,7 @@ function seedOverseas20261023(){
 }
 function overseasRecordCount(d){return ['stocks','trades','exchanges','incomes','incomeItems'].reduce((n,k)=>n+(Array.isArray(d?.[k])?d[k].length:0),0)}
 async function restoreOverseasIfEmpty(){
- if(sessionStorage.getItem('asset-note-manual-overseas-import')==='1')return 'manual-import';
+ const manualImport=sessionStorage.getItem('asset-note-manual-overseas-import')==='1';
  let local=null;try{local=JSON.parse(localStorage.getItem(LEGACY)||'null')}catch(e){}
  let remote=null;
  try{const envelope=await api('/api/overseas');remote=envelope?.format==='overseas-ledger'?envelope.data:envelope}
@@ -694,6 +694,28 @@ async function restoreOverseasIfEmpty(){
  }
  if(!remote||!Array.isArray(remote.accounts)||!Array.isArray(remote.stocks)||!Array.isArray(remote.trades)||!Array.isArray(remote.exchanges)||!Array.isArray(remote.incomes))throw Error('해외주식 원격 장부 형식이 올바르지 않습니다.');
  if(!overseasRecordCount(remote))throw Error('해외주식 비공개 백업이 비어 있습니다.');
+ if(manualImport&&local&&overseasRecordCount(local)>0){
+  const ids=['broker-20261105-jepq-0004','broker-20261104-qqqm-2353','broker-20261105-gldm-0010','broker-20261104-schd-2356','broker-20261105-voo-0001','broker-20261105-jepi-0007','broker-20261105-abbv-0014','broker-20261105-mrk-0012','broker-20261105-lly-0010'];
+  const target=local.accounts?.find(a=>a.code==='USD'&&a.label==='달러_3000');
+  if(!target)return 'manual-import';
+  const existing=new Set(local.trades.map(t=>t.id));let added=0;
+  for(const id of ids){
+   const trade=remote.trades.find(t=>t.id===id);if(!trade)continue;
+   if(existing.has(id))continue;
+   const src=remote.stocks.find(s=>s.id===trade.stockId);
+   const dst=local.stocks.find(s=>s.id===trade.stockId)||local.stocks.find(s=>s.ticker===src?.ticker);
+   if(!dst)continue;
+   if(local.trades.some(t=>t.stockId===dst.id&&t.date===trade.date&&t.side===trade.side&&Math.abs(t.qty-trade.qty)<1e-8&&Math.abs(t.amount-trade.amount)<.0001))continue;
+   local.trades.push({...trade,stockId:dst.id,accountId:target.id});added++;
+  }
+  if(added){
+   localStorage.setItem(LEGACY+'-before-cloud-merge-'+Date.now(),JSON.stringify(JSON.parse(localStorage.getItem(LEGACY))));
+   localStorage.setItem(LEGACY,JSON.stringify(local));
+   $('#overseasFrame')?.contentWindow?.location.reload();
+  }
+  sessionStorage.removeItem('asset-note-manual-overseas-import');
+  return added?'merged':'existing';
+ }
  if(JSON.stringify(local)===JSON.stringify(remote))return 'existing';
  // Preserve each device's prior ledger before replacing it with the shared cloud source.
  if(local&&overseasRecordCount(local)>0){
