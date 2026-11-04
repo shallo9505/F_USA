@@ -618,7 +618,7 @@ function reconcileMissingPurchases(d){
   primaries[sym]=d.stocks.find(s=>!String(s.id).startsWith('restored-stock-')&&(ticker(s.ticker)===sym||ticker(s.ticker).startsWith(sym+' ')||ticker(s.ticker).startsWith(sym+'/')));
  }
  const targetAccount=d.accounts.find(a=>a.code==='USD'&&a.label==='달러_3000');
- const mstyAccount=d.accounts.find(a=>a.code==='USD'&&a.label==='달러');
+ // MSTY buys of 10 shares or more are assigned to 달러_3000.
  if(!targetAccount||symbols.some(sym=>!primaries[sym]))return 0;
  let changed=0;
  // First migrate phantom stocks' transactions to the original stock objects.
@@ -651,11 +651,11 @@ function reconcileMissingPurchases(d){
   d.trades.push({id:'fixed-'+date.replace(/-/g,'')+'-'+sym.toLowerCase(),stockId,side:'buy',accountId:targetAccount.id,date,amount,qty,price,rate,memo:'토스증권 체결내역 확인 · 누락 매수 복구'});
   changed++;
  }
- // The 20-share MSTY fill belongs to the personal dollar account.
+ // Preserve the confirmed 2026-11-04 JSON: 2026-10-30 MSTY 20 shares -> 달러_3000.
  const msty=d.stocks.find(s=>ticker(s.ticker)==='MSTY');
- if(msty&&mstyAccount){
+ if(msty){
   const entry=d.trades.find(t=>t.stockId===msty.id&&t.side==='buy'&&t.date==='2026-10-30'&&Math.abs(Number(t.qty)-20)<1e-8&&Math.abs(Number(t.amount)-263)<.02);
-  if(entry&&entry.accountId!==mstyAccount.id){entry.accountId=mstyAccount.id;changed++;}
+  if(entry&&entry.accountId!==targetAccount.id){entry.accountId=targetAccount.id;changed++;}
  }
  // Remove only phantom stock objects after all their transactions have been relinked.
  const used=new Set(d.trades.map(t=>t.stockId));
