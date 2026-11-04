@@ -485,7 +485,7 @@ function seedOverseas20261030Msty(){
   const ledger=JSON.parse(raw);if(!Array.isArray(ledger.trades)||!Array.isArray(ledger.accounts)||!Array.isArray(ledger.stocks))return false;
   const stock=ledger.stocks.find(s=>s.id==='776a54f7-2793-4d19-94ff-55421d1fe83d'||String(s.ticker||'').toUpperCase()==='MSTY');
   const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9가-힣]/g,'');
-  const account=ledger.accounts.find(a=>a.code==='USD'&&norm(a.label)==='달러');
+  const account=ledger.accounts.find(a=>a.code==='USD'&&norm(a.label)==='달러3000');
   if(!stock||!account)return false;
   const trade={id:'trade-20261030-msty-20-26300',stockId:stock.id,side:'buy',accountId:account.id,date:'2026-10-30',amount:263,qty:20,price:13.15,rate:1335.30,memo:'토스증권 구매완료 09:35 · 원화 결제 351183원'};
   if(ledger.trades.some(t=>t.id===trade.id||(t.stockId===trade.stockId&&t.side==='buy'&&t.date===trade.date&&Math.abs(Number(t.qty)-20)<1e-8&&Math.abs(Number(t.amount)-263)<0.011)))return false;
