@@ -697,17 +697,16 @@ function seedOverseas20261023(){
  }catch(e){console.warn('해외주식 2026-10-23 보정 실패',e);return false}
 }
 function overseasRecordCount(d){return ['stocks','trades','exchanges','incomes','incomeItems'].reduce((n,k)=>n+(Array.isArray(d?.[k])?d[k].length:0),0)}
-async function restoreOverseasIfEmpty(){
+async function restoreOverseasIfEmpty(preloadedBackup=null){
  const manualImport=sessionStorage.getItem('asset-note-manual-overseas-import')==='1';
  let local=null;try{local=JSON.parse(localStorage.getItem(LEGACY)||'null')}catch(e){}
+ // The deployed OAuth Worker does not implement /api/overseas (404).
+ // Use the already authenticated combined backup directly; never rely on that missing endpoint.
+ const combined=preloadedBackup||await api('/api/backup');
+ const stored=combined?.overseasLocalStorage?.[LEGACY];
+ if(!stored)throw Error('통합 백업에 해외주식 장부가 없습니다. 빈 장부를 저장하지 않습니다.');
  let remote=null;
- try{const envelope=await api('/api/overseas');remote=envelope?.format==='overseas-ledger'?envelope.data:envelope}
- catch(e){
-  const combined=await api('/api/backup');
-  const stored=combined?.overseasLocalStorage?.[LEGACY];
-  if(!stored)throw Error('해외주식 복원 가능한 백업이 없습니다: '+e.message);
-  try{remote=JSON.parse(stored)}catch(parseError){throw Error('통합 백업의 해외주식 데이터가 손상됐습니다.')}
- }
+ try{remote=JSON.parse(stored)}catch(parseError){throw Error('통합 백업의 해외주식 데이터가 손상됐습니다.')}
  if(!remote||!Array.isArray(remote.accounts)||!Array.isArray(remote.stocks)||!Array.isArray(remote.trades)||!Array.isArray(remote.exchanges)||!Array.isArray(remote.incomes))throw Error('해외주식 원격 장부 형식이 올바르지 않습니다.');
  if(!overseasRecordCount(remote))throw Error('해외주식 비공개 백업이 비어 있습니다.');
  if(manualImport&&local&&overseasRecordCount(local)>0){
@@ -780,10 +779,10 @@ async function autoLoadAfterLogin(login){
    toast('GitHub의 최신 백업을 자동으로 불러왔습니다.');
   }
   const migrated=migratedDuringRestore||migrateDomesticIncome();const seeded=seedDomesticPurchases();const housingSeeded=seedHousingSavings();const insuranceSeeded=seedInsurance20261105();if(housingSeeded||insuranceSeeded)save();if(migrated||seeded)reloadLedgers();
-  lastRemoteSnapshot=comparable(remote);cloudReady=true;cloudDirty=false;let overseasSync='';try{overseasSync=await restoreOverseasIfEmpty()}catch(err){overseasSync='error';console.warn('해외주식 별도 복원 실패:',err);$('#authMessage').textContent='해외주식 복원 실패: '+err.message}if(applyFixedMonth(hSelectedMonth))render();
-  $('#status').textContent='GitHub 최신 백업 동기화 완료';
-  if(migrated||seeded||housingSeeded||insuranceSeeded)scheduleCloudSave();
-  const newTrades=normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty()|false|false|seedOverseas20261102Events();if(newTrades){reloadLedgers();scheduleCloudSave();toast('해외주식 누락 거래 복원됨 · GitHub 저장 대기');}
+  lastRemoteSnapshot=comparable(remote);cloudReady=true;cloudDirty=false;let overseasSync='';try{overseasSync=await restoreOverseasIfEmpty(remote)}catch(err){overseasSync='error';console.warn('해외주식 별도 복원 실패:',err);$('#authMessage').textContent='해외주식 복원 실패: '+err.message}if(applyFixedMonth(hSelectedMonth))render();
+  $('#status').textContent=overseasSync==='error'?'해외주식 복원 실패 · 백업 확인 필요':'GitHub 최신 백업 동기화 완료';
+  if(overseasSync==='error'){cloudReady=false;cloudDirty=false;}else if(migrated||seeded||housingSeeded||insuranceSeeded)scheduleCloudSave();
+  const newTrades=overseasSync==='error'?0:(normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty()|false|false|seedOverseas20261102Events());if(newTrades){reloadLedgers();scheduleCloudSave();toast('해외주식 누락 거래 복원됨 · GitHub 저장 대기');}
   if(overseasSync!=='error')$('#authMessage').textContent='GitHub 연결됨: '+login+' · 통합 백업 동기화'+(overseasSync==='restored'?' · 해외주식 별도 복원 완료':'')+' · 변경 시 자동 저장';
  }catch(e){
   if(/404|No backup found/.test(e.message)){
@@ -837,7 +836,7 @@ function restore(data,{automatic=false}={}){
 }
 $('#importBtn').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{try{const f=e.target.files[0];if(f){restore(JSON.parse(await f.text()));toast('파일 복원 완료. 해외주식 포함. GitHub 전체 백업을 눌러 원격에도 저장하세요.')}}catch(err){toast('복원 실패: '+err.message)}finally{e.target.value=''}};
 $('#cloudBackup').onclick=async()=>{if(!confirm('현재 브라우저 데이터를 GitHub 비공개 저장소에 저장할까요?'))return;try{const snapshot=bundle(),j=await api('/api/backup',{method:'PUT',body:JSON.stringify(snapshot)});lastRemoteSnapshot=comparable(snapshot);cloudDirty=false;cloudReady=true;$('#status').textContent='GitHub 백업 완료';toast('GitHub 백업 완료 '+(j.updatedAt||''))}catch(e){toast(e.message)}};
-$('#cloudRestore').onclick=async()=>{try{const j=await api('/api/backup');cloudApplying=true;try{restore(j)}finally{cloudApplying=false}let overseas='';try{overseas=await restoreOverseasIfEmpty()}catch(e){$('#authMessage').textContent='해외주식 복원 실패: '+e.message;throw e}cloudReady=true;lastRemoteSnapshot=comparable(j);cloudDirty=false;toast('GitHub 통합 복원 완료'+(overseas==='restored'?' · 해외주식도 복원됨':' · 기존 해외주식 유지'))}catch(e){toast('복원 실패: '+e.message)}};
+$('#cloudRestore').onclick=async()=>{try{const j=await api('/api/backup');cloudApplying=true;try{restore(j)}finally{cloudApplying=false}let overseas='';try{overseas=await restoreOverseasIfEmpty(j)}catch(e){$('#authMessage').textContent='해외주식 복원 실패: '+e.message;throw e}cloudReady=true;lastRemoteSnapshot=comparable(j);cloudDirty=false;toast('GitHub 통합 복원 완료'+(overseas==='restored'?' · 해외주식도 복원됨':' · 기존 해외주식 유지'))}catch(e){toast('복원 실패: '+e.message)}};
 if(seedHousingSavings()||seedInsurance20261105())save();seedOverseas20261023();seedOverseas20261026();seedOverseas20261027();seedOverseas20261028();normalizeOverseasAccounts();seedOverseas20261029();seedOverseas20261030Msty();false;false;seedOverseas20261102Events();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&!cloudDirty&&!cloudBusy)autoLoadAfterLogin(cloudLogin)});migrateDomesticIncome();wireLedgerFrame('overseasFrame');wireLedgerFrame('domesticFrame');if(['#korea','#household','#loans'].includes(location.hash)){document.querySelector('[data-main="'+location.hash.slice(1)+'"]').click()}else render();checkAuth();
 })();
 </script></body></html>
