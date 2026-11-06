@@ -59,12 +59,12 @@ $('#hToggleSavings').onclick=()=>setHouseholdFold('hSavings','hToggleSavings',$(
 $('#hOpenSettlement').onclick=()=>{$('#household').classList.add('h-settlement-mode');render();window.scrollTo(0,0)};$('#hSettlementYear').onchange=e=>{hSettlementYear=e.target.value;render()};$('#hCloseSettlement').onclick=()=>{$('#household').classList.remove('h-settlement-mode');window.scrollTo(0,0)};all('[data-h]').forEach(b=>b.onclick=()=>{ht=b.dataset.h;hEditing=null;all('[data-h]').forEach(x=>x.classList.toggle('active',x===b));render()});
 const CATEGORY_DEFAULTS={
  income:[['급여','월급,급여,상여금,성과급'],['금융수익','배당,이자,예적금'],['부수입','부업,리워드,판매대금'],['환급','환불,환급,결제할인'],['정산','정산,돌려받음,대납금']],
- fixed:[['월세','월세,월세납부'],['공과금','삼천리,관리비,전기세,전기요금,가스요금,도시가스,수도세,수도요금'],['세스코','세스코'],['주거/공과금','월세,관리비,전기세,도시가스,수도세'],['통신/보안','kt,통신비,cctv,세스코'],['금융/대출','대출,신복위,원리금,sbi'],['구독/멤버십','넷플릭스,유튜브,구독,멤버십'],['구독/정기결제','톡클라우드,네이버멤버쉽,네이버멤버십,쿠팡멤버쉽,쿠팡멤버십,쿠팡와우,티빙,gpt,chatgpt,gemini,제미나이,토스프라임'],['교통정기','itx,정기권']],
+ fixed:[['보험','보험,실비,실손,삼성화재'],['월세','월세,월세납부'],['공과금','삼천리,관리비,전기세,전기요금,가스요금,도시가스,수도세,수도요금'],['세스코','세스코'],['주거/공과금','월세,관리비,전기세,도시가스,수도세'],['통신/보안','kt,통신비,cctv,세스코'],['금융/대출','대출,신복위,원리금,sbi'],['구독/멤버십','넷플릭스,유튜브,구독,멤버십'],['구독/정기결제','톡클라우드,네이버멤버쉽,네이버멤버십,쿠팡멤버쉽,쿠팡멤버십,쿠팡와우,티빙,gpt,chatgpt,gemini,제미나이,토스프라임'],['교통정기','itx,정기권']],
  consumption:[['식비/배달','배민,쿠팡이츠,요기요,배달,점심,저녁,식사,kfc,맥도날드'],['카페/간식','스타벅스,투썸,메가커피,카페,커피,간식,베스킨'],['생활용품','다이소,세제,생필품,마트'],['집/생활용품','가구,가전,인테리어,청소용품,집꾸미기,홈데코,수납장,침구,커튼'],['쇼핑/패션','옷,신발,패션,쇼핑'],['미용/건강','화장품,미용실,피부,약국,병원'],['교통','택시,버스,지하철,주유,코레일,후불교통,톨비'],['문화/여가','cgv,영화,게임,전시,취미'],['여행/숙박','호텔,항공,숙박,여행'],['경조사/선물','축의금,조의금,부의금,부조금,돌잔치,선물,생일,생일선물,결혼식,장례식,축하금'],['애견','로아,로아사료,로아간식'],['구매대행','대납,구매대행'],['쓰레기 수거','오늘수거,커버링'],['기타','']],
  transfer:[['저축/투자','cma,isa,주택청약,적금,주식투자'],['구매대행/대납','엄마,구매대행,대납'],['내부이체','계좌이체,자금이동']]
 };
 const CATEGORY_LABELS={income:'수입',fixed:'고정지출',consumption:'소비지출',transfer:'자금이동/정산'};
-function categoryRules(){const rules=db.household.categoryRules||CATEGORY_DEFAULTS,c=rules.consumption||[],income=(rules.income||[]).filter(x=>x[0]!=='환급/정산');if(!income.some(x=>x[0]==='환급'))income.push(['환급','환급,환불,결제할인']);if(!income.some(x=>x[0]==='정산'))income.push(['정산','정산,돌려받음,대납금']);const categories=c.filter(x=>x[0]!=='대납');if(!categories.some(x=>x[0]==='집/생활용품'))categories.push(['집/생활용품','가구,가전,인테리어,청소용품,집꾸미기,홈데코,수납장,침구,커튼']);if(!categories.some(x=>x[0]==='애견'))categories.push(['애견','로아,로아사료,로아간식']);if(!categories.some(x=>x[0]==='구매대행'))categories.push(['구매대행','대납,구매대행']);if(!categories.some(x=>x[0]==='쓰레기 수거'))categories.push(['쓰레기 수거','오늘수거,커버링']);const fixed=(rules.fixed||[]).filter(x=>x[0]!=='주거/공과금');for(const [name,words] of [['월세','월세,월세납부'],['공과금','삼천리,관리비,전기세,전기요금,가스요금,도시가스,수도세,수도요금'],['세스코','세스코']])if(!fixed.some(x=>x[0]===name))fixed.unshift([name,words]);if(!fixed.some(x=>x[0]==='기타 고정지출'))fixed.push(['기타 고정지출','']);if(!fixed.some(x=>x[0]==='구독/정기결제'))fixed.push(['구독/정기결제','톡클라우드,네이버멤버쉽,네이버멤버십,쿠팡멤버쉽,쿠팡멤버십,쿠팡와우,티빙,gpt,chatgpt,gemini,제미나이,토스프라임']);return {...rules,income,fixed,consumption:categories}}
+function categoryRules(){const rules=db.household.categoryRules||CATEGORY_DEFAULTS,c=rules.consumption||[],income=(rules.income||[]).filter(x=>x[0]!=='환급/정산');if(!income.some(x=>x[0]==='환급'))income.push(['환급','환급,환불,결제할인']);if(!income.some(x=>x[0]==='정산'))income.push(['정산','정산,돌려받음,대납금']);const categories=c.filter(x=>x[0]!=='대납');if(!categories.some(x=>x[0]==='집/생활용품'))categories.push(['집/생활용품','가구,가전,인테리어,청소용품,집꾸미기,홈데코,수납장,침구,커튼']);if(!categories.some(x=>x[0]==='애견'))categories.push(['애견','로아,로아사료,로아간식']);if(!categories.some(x=>x[0]==='구매대행'))categories.push(['구매대행','대납,구매대행']);if(!categories.some(x=>x[0]==='쓰레기 수거'))categories.push(['쓰레기 수거','오늘수거,커버링']);const fixed=(rules.fixed||[]).filter(x=>x[0]!=='주거/공과금');for(const [name,words] of [['보험','보험,실비,실손,삼성화재'],['월세','월세,월세납부'],['공과금','삼천리,관리비,전기세,전기요금,가스요금,도시가스,수도세,수도요금'],['세스코','세스코']])if(!fixed.some(x=>x[0]===name))fixed.unshift([name,words]);if(!fixed.some(x=>x[0]==='기타 고정지출'))fixed.push(['기타 고정지출','']);if(!fixed.some(x=>x[0]==='구독/정기결제'))fixed.push(['구독/정기결제','톡클라우드,네이버멤버쉽,네이버멤버십,쿠팡멤버쉽,쿠팡멤버십,쿠팡와우,티빙,gpt,chatgpt,gemini,제미나이,토스프라임']);return {...rules,income,fixed,consumption:categories}}
 function classifyMemo(value){
  const t=String(value||'').toLowerCase();
  // Incoming reimbursements outrank agency/deputy-payment expense keywords.
@@ -245,6 +245,21 @@ function hMonthComparison(month){
  const prev=hShift(month,-1),now=hSummary(month),old=hSummary(prev);
  const cells=[['수입',now.income,old.income],['전체 지출',now.expenses,old.expenses],['고정비',now.fixed,old.fixed],['소비지출',now.consumption,old.consumption],['구매대행·대납',now.agency,old.agency],['저축·투자',now.saving,old.saving]];
  return '<h3>'+escape(month)+' 전월('+escape(prev)+') 대비</h3><div class="h-delta-grid">'+cells.map(([label,current,previous])=>{const delta=current-previous;const phrase=delta>0?won(delta)+' 증가':delta<0?won(-delta)+' 감소':'변동 없음';return '<div class="h-delta-card"><span class="muted">'+label+'</span><strong>'+phrase+'</strong><div class="muted">이번 달 '+won(current)+' / 전월 '+won(previous)+'</div></div>'}).join('')+'</div>';
+}
+// Keep the insurance entry idempotent across legacy JSON imports and cloud restores.
+function seedInsurance20261105(){
+ ensureHousehold();
+ const h=db.household,existing=(h.fixedExpenses||[]).some(r=>r.date==='2026-11-05'&&Number(r.amount)===13932&&/삼성화재|실비/.test([r.name,r.description].join(' ')));
+ if(existing){h.insuranceSeed20261105=true;return false}
+ if(h.insuranceSeed20261105)return false;
+ h.fixedExpenses.push({
+   date:'2026-11-05',name:'삼성화재실비',category:'보험',
+   description:'삼성화재실비',amount:'13932',memo:'',
+   paymentMethod:'transfer',majorCategory:'고정지출',categoryGroup:'fixed',
+   recurringId:'insurance-samsung-20261105-13932'
+ });
+ h.insuranceSeed20261105=true;
+ return true;
 }
 function seedHousingSavings(){ensureHousehold();const marker='opening-housing-20260928-800000';if(db.household.savings.some(r=>r.id===marker))return false;const same=db.household.savings.some(r=>r.type==='주택청약'&&r.date==='2026-09-28'&&Number(r.amount)===800000);if(same)return false;db.household.savings.push({id:marker,date:'2026-09-28',type:'주택청약',amount:800000,memo:'기존 보유금액 등록'});return true}
 function hSavingsSummary(month){ensureHousehold();const types=['CMA','ISA','주택청약','비상금','주식 예수금'];return types.map(type=>{const entries=(db.household.savings||[]).filter(r=>r.type===type&&String(r.date||'').slice(0,7)<=month);const amount=entries.reduce((a,r)=>a+(+r.amount||0),0);const current=entries.filter(r=>String(r.date||'').startsWith(month)).reduce((a,r)=>a+(+r.amount||0),0);return{type,amount,current}})}
@@ -763,10 +778,10 @@ async function autoLoadAfterLogin(login){
    try{migratedDuringRestore=!!restore(remote,{automatic:true})}finally{cloudApplying=false}
    toast('GitHub의 최신 백업을 자동으로 불러왔습니다.');
   }
-  const migrated=migratedDuringRestore||migrateDomesticIncome();const seeded=seedDomesticPurchases();const housingSeeded=seedHousingSavings();if(housingSeeded)save();if(migrated||seeded)reloadLedgers();
+  const migrated=migratedDuringRestore||migrateDomesticIncome();const seeded=seedDomesticPurchases();const housingSeeded=seedHousingSavings();const insuranceSeeded=seedInsurance20261105();if(housingSeeded||insuranceSeeded)save();if(migrated||seeded)reloadLedgers();
   lastRemoteSnapshot=comparable(remote);cloudReady=true;cloudDirty=false;let overseasSync='';try{overseasSync=await restoreOverseasIfEmpty()}catch(err){overseasSync='error';console.warn('해외주식 별도 복원 실패:',err);$('#authMessage').textContent='해외주식 복원 실패: '+err.message}if(applyFixedMonth(hSelectedMonth))render();
   $('#status').textContent='GitHub 최신 백업 동기화 완료';
-  if(migrated||seeded||housingSeeded)scheduleCloudSave();
+  if(migrated||seeded||housingSeeded||insuranceSeeded)scheduleCloudSave();
   const newTrades=normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty()|false|false|seedOverseas20261102Events();if(newTrades){reloadLedgers();scheduleCloudSave();toast('해외주식 누락 거래 복원됨 · GitHub 저장 대기');}
   if(overseasSync!=='error')$('#authMessage').textContent='GitHub 연결됨: '+login+' · 통합 백업 동기화'+(overseasSync==='restored'?' · 해외주식 별도 복원 완료':'')+' · 변경 시 자동 저장';
  }catch(e){
@@ -815,13 +830,13 @@ function restore(data,{automatic=false}={}){
   sessionStorage.setItem('asset-note-manual-overseas-import','1');
  }
  for(const [key,value] of Object.entries(data.domesticLocalStorage||{})){if(['domestic-ledger-v1','domestic-ledger-v1-recovery','domestic-ledger-v1-raw-recovery'].includes(key))localStorage.setItem(key,value)}
- const housingSeeded=seedHousingSavings();save();const incomeMigrated=migrateDomesticIncome();const purchasesSeeded=seedDomesticPurchases();const overseasSeeded=automatic?(normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty()):false;reloadLedgers();
+ const housingSeeded=seedHousingSavings();const insuranceSeeded=seedInsurance20261105();save();const incomeMigrated=migrateDomesticIncome();const purchasesSeeded=seedDomesticPurchases();const overseasSeeded=automatic?(normalizeOverseasAccounts()|seedOverseas20261029()|seedOverseas20261030Msty()):false;reloadLedgers();
  if(!automatic)toast('복원 완료. 해외주식·국내주식 화면도 다시 불러왔습니다.');
  return incomeMigrated||purchasesSeeded||housingSeeded||overseasSeeded;
 }
 $('#importBtn').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{try{const f=e.target.files[0];if(f){restore(JSON.parse(await f.text()));toast('파일 복원 완료. 해외주식 포함. GitHub 전체 백업을 눌러 원격에도 저장하세요.')}}catch(err){toast('복원 실패: '+err.message)}finally{e.target.value=''}};
 $('#cloudBackup').onclick=async()=>{if(!confirm('현재 브라우저 데이터를 GitHub 비공개 저장소에 저장할까요?'))return;try{const snapshot=bundle(),j=await api('/api/backup',{method:'PUT',body:JSON.stringify(snapshot)});lastRemoteSnapshot=comparable(snapshot);cloudDirty=false;cloudReady=true;$('#status').textContent='GitHub 백업 완료';toast('GitHub 백업 완료 '+(j.updatedAt||''))}catch(e){toast(e.message)}};
 $('#cloudRestore').onclick=async()=>{try{const j=await api('/api/backup');cloudApplying=true;try{restore(j)}finally{cloudApplying=false}let overseas='';try{overseas=await restoreOverseasIfEmpty()}catch(e){$('#authMessage').textContent='해외주식 복원 실패: '+e.message;throw e}cloudReady=true;lastRemoteSnapshot=comparable(j);cloudDirty=false;toast('GitHub 통합 복원 완료'+(overseas==='restored'?' · 해외주식도 복원됨':' · 기존 해외주식 유지'))}catch(e){toast('복원 실패: '+e.message)}};
-if(seedHousingSavings())save();seedOverseas20261023();seedOverseas20261026();seedOverseas20261027();seedOverseas20261028();normalizeOverseasAccounts();seedOverseas20261029();seedOverseas20261030Msty();false;false;seedOverseas20261102Events();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&!cloudDirty&&!cloudBusy)autoLoadAfterLogin(cloudLogin)});migrateDomesticIncome();wireLedgerFrame('overseasFrame');wireLedgerFrame('domesticFrame');if(['#korea','#household','#loans'].includes(location.hash)){document.querySelector('[data-main="'+location.hash.slice(1)+'"]').click()}else render();checkAuth();
+if(seedHousingSavings()||seedInsurance20261105())save();seedOverseas20261023();seedOverseas20261026();seedOverseas20261027();seedOverseas20261028();normalizeOverseasAccounts();seedOverseas20261029();seedOverseas20261030Msty();false;false;seedOverseas20261102Events();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&cloudReady&&!cloudDirty&&!cloudBusy)autoLoadAfterLogin(cloudLogin)});migrateDomesticIncome();wireLedgerFrame('overseasFrame');wireLedgerFrame('domesticFrame');if(['#korea','#household','#loans'].includes(location.hash)){document.querySelector('[data-main="'+location.hash.slice(1)+'"]').click()}else render();checkAuth();
 })();
 </script></body></html>
